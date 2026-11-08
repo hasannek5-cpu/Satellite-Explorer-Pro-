@@ -6,11 +6,13 @@ L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
 }).addTo(map);
 
 const markers = L.layerGroup().addTo(map);
-const satellitesData = [];
-const satrecs = new Map();
-let userMarker = null;
+const markerMap = new Map();
 
-// نمایش تب‌ها
+let satellitesData = [];
+let userMarker = null;
+let selectedNorad = null;
+
+// مدیریت تب‌ها
 function showTab(tab) {
   document.getElementById('mapTab').hidden = tab !== 'map';
   document.getElementById('infoTab').hidden = tab !== 'info';
@@ -21,14 +23,15 @@ function showTab(tab) {
   }
 }
 
-// دریافت ماهواره‌ها
+// دریافت اطلاعات TLE از Celestrak
 async function loadSatellites() {
   const details = document.getElementById('details');
-  details.innerText = 'در حال دریافت ماهواره‌ها...';
+
+  details.innerText = 'در حال دریافت اطلاعات ماهواره‌ها...';
 
   try {
     const url =
-      'https://celestrak.org/NORAD/elements/gp.php?GROUP=stations&FORMAT=json';
+      'https://celestrak.org/NORAD/elements/gp.php?GROUP=stations&FORMAT=tle';
 
     const response = await fetch(url);
 
@@ -36,87 +39,109 @@ async function loadSatellites() {
       throw new Error('HTTP ' + response.status);
     }
 
-    const satellites = await response.json();
+    const content = await response.text();
 
-    satellitesData.length = 0;
-    satrecs.clear();
+    const lines = content
+      .split(/\r?\n/)
+      .map(line => line.trim())
+      .filter(Boolean);
 
-    satellites.forEach(sat => {
-      const name = sat.OBJECT_NAME || sat.NAME;
-      const line1 = sat.TLE_LINE1;
-      const line2 = sat.TLE_LINE2;
-      const norad = sat.NORAD_CAT_ID;
+    const newSatellites = [];
 
-      if (!name || !line1 || !line2) return;
+    for (let i = 0; i < lines.length - 2; i++) {
+      let name = lines[i];
+
+      if (name.startsWith('0 ')) {
+        name = name.substring(2);
+      }
+
+      const line1 = lines[i + 1];
+      const line2 = lines[i + 2];
+
+      if (!line1.startsWith('1 ') ||
+          !line2.startsWith('2 ')) {
+        continue;
+      }
 
       try {
-        const satrec = satellite.twoline2satrec(line1, line2);
+        const satrec =
+          satellite.twoline2satrec(line1, line2);
 
-        if (satrec.error) return;
+        if (satrec.error) continue;
 
-        satellitesData.push({
+        newSatellites.push({
           name,
-          norad,
-          satrec
+          norad: line1.substring(2, 7).trim(),
+          satrec,
+          lat: 0,
+          lon: 0,
+          altitude: 0,
+          speed: 0
         });
 
-        satrecs.set(String(norad), satrec);
-      } catch (e) {
-        console.warn('Satellite error:', name, e);
+        i += 2;
+
+      } catch (error) {
+        console.warn('خطای ماهواره:', name, error);
       }
-    });
+    }
+
+    if (newSatellites.length === 0) {
+      throw new Error('هیچ ماهواره معتبری دریافت نشد');
+    }
+
+    satellitesData = newSatellites;
 
     updateSatellitePositions();
+    renderSatelliteList();
 
     details.innerText =
-      satellitesData.length + ' ماهواره فعال دریافت شد';
-
-    renderSatelliteList();
+      satellitesData.length +
+      ' ماهواره با موفقیت دریافت شد';
 
   } catch (error) {
     console.error(error);
+
     details.innerText =
-      'خطا در دریافت ماهواره‌ها؛ اتصال اینترنت را بررسی کنید';
+      'خطا در دریافت اطلاعات: ' + error.message;
   }
 }
 
-// محاسبه موقعیت مداری
+// محاسبه مختصات ماهواره‌ها
 function updateSatellitePositions() {
   const now = new Date();
 
   satellitesData.forEach(sat => {
     try {
-      const positionAndVelocity =
+      const result =
         satellite.propagate(sat.satrec, now);
 
-      const positionEci = positionAndVelocity.position;
+      const position = result.position;
+      const velocity = result.velocity;
 
-      if (!positionEci || typeof positionEci === 'boolean') return;
+      if (!position || typeof position === 'boolean') {
+        return;
+      }
 
       const gmst = satellite.gstime(now);
 
-      const geo = satellite.eciToGeodetic(positionEci, gmst);
+      const geo =
+        satellite.eciToGeodetic(position, gmst);
 
-      const lat = satellite.degreesLat(geo.latitude);
-      const lon = satellite.degreesLong(geo.longitude);
-      const altitude = geo.height;
-
-      sat.lat = lat;
-      sat.lon = lon;
-      sat.altitude = altitude;
-
-      const velocity = positionAndVelocity.velocity;
+      sat.lat = satellite.degreesLat(geo.latitude);
+      sat.lon = satellite.degreesLong(geo.longitude);
+      sat.altitude = geo.height;
 
       if (velocity && typeof velocity !== 'boolean') {
         sat.speed = Math.sqrt(
-          velocity.x ** 2 +
-          velocity.y ** 2 +
-          velocity.z ** 2
+          velocity.x * velocity.x +
+          velocity.y * velocity.y +
+          velocity.z * velocity.z
         );
       }
 
-    } catch (e) {
-      console.warn('Position error:', sat.name);
+    } catch (error) {
+      console.warn('محاسبه موقعیت ناموفق:', sat.name);
     }
   });
 
@@ -124,94 +149,132 @@ function updateSatellitePositions() {
   updateSelectedSatellite();
 }
 
-// نشانگرهای نقشه
+// نمایش نشانگرها روی نقشه
 function updateMarkers() {
-  markers.clearLayers();
-
   satellitesData.forEach(sat => {
-    if (!Number.isFinite(sat.lat) || !Number.isFinite(sat.lon)) return;
+    if (!Number.isFinite(sat.lat) ||
+        !Number.isFinite(sat.lon)) {
+      return;
+    }
 
-    const marker = L.circleMarker([sat.lat, sat.lon], {
-      radius: 5,
-      color: '#00e5ff',
-      fillColor: '#00bfff',
-      fillOpacity: 0.9,
-      weight: 1
-    });
+    let marker = markerMap.get(sat.norad);
+
+    if (!marker) {
+      marker = L.circleMarker(
+        [sat.lat, sat.lon],
+        {
+          radius: 6,
+          color: '#00e5ff',
+          fillColor: '#008cff',
+          fillOpacity: 0.95,
+          weight: 2
+        }
+      );
+
+      marker.on('click', () => {
+        showSatelliteInfo(sat.norad);
+      });
+
+      marker.addTo(markers);
+      markerMap.set(sat.norad, marker);
+
+    } else {
+      marker.setLatLng([sat.lat, sat.lon]);
+    }
 
     marker.bindPopup(`
       <div dir="rtl">
         <b>${escapeHTML(sat.name)}</b><br>
-        شناسه NORAD: ${sat.norad}<br>
+        NORAD: ${sat.norad}<br>
         ارتفاع: ${sat.altitude.toFixed(1)} کیلومتر
       </div>
     `);
-
-    marker.on('click', () => {
-      showSatelliteInfo(sat);
-    });
-
-    marker.addTo(markers);
   });
+
+  // حذف نشانگرهای ماهواره‌های حذف‌شده
+  for (const [id, marker] of markerMap) {
+    if (!satellitesData.some(s => s.norad === id)) {
+      markers.removeLayer(marker);
+      markerMap.delete(id);
+    }
+  }
 }
 
 // جلوگیری از تزریق HTML
 function escapeHTML(value) {
-  return String(value).replace(/[&<>"']/g, char => ({
+  return String(value).replace(/[&<>"']/g, c => ({
     '&': '&amp;',
     '<': '&lt;',
     '>': '&gt;',
     '"': '&quot;',
     "'": '&#39;'
-  })[char]);
+  })[c]);
 }
 
-// نمایش اطلاعات ماهواره
-function showSatelliteInfo(sat) {
-  const details = document.getElementById('details');
+// نمایش جزئیات ماهواره
+function showSatelliteInfo(norad) {
+  const sat = satellitesData.find(
+    item => item.norad === String(norad)
+  );
 
-  details.innerHTML = `
+  if (!sat) return;
+
+  selectedNorad = sat.norad;
+
+  showTab('info');
+  updateSelectedSatellite();
+}
+
+// به‌روزرسانی اطلاعات ماهواره انتخاب‌شده
+function updateSelectedSatellite() {
+  if (!selectedNorad) return;
+
+  const sat = satellitesData.find(
+    item => item.norad === selectedNorad
+  );
+
+  if (!sat) return;
+
+  document.getElementById('details').innerHTML = `
     <div dir="rtl">
       <h3>${escapeHTML(sat.name)}</h3>
       <p>شناسه NORAD: ${sat.norad}</p>
-      <p>عرض جغرافیایی: ${sat.lat.toFixed(5)}</p>
-      <p>طول جغرافیایی: ${sat.lon.toFixed(5)}</p>
+      <p>عرض جغرافیایی: ${sat.lat.toFixed(5)} درجه</p>
+      <p>طول جغرافیایی: ${sat.lon.toFixed(5)} درجه</p>
       <p>ارتفاع: ${sat.altitude.toFixed(2)} کیلومتر</p>
-      <p>سرعت: ${sat.speed ? sat.speed.toFixed(3) : '---'} کیلومتر بر ثانیه</p>
+      <p>سرعت: ${sat.speed.toFixed(3)} کیلومتر بر ثانیه</p>
+      <p>آخرین محاسبه: ${new Date().toLocaleTimeString('fa-IR')}</p>
     </div>
   `;
-
-  document.getElementById('infoTab').hidden = false;
-  document.getElementById('mapTab').hidden = true;
-  document.getElementById('gpsTab').hidden = true;
 }
 
 // فهرست ماهواره‌ها
 function renderSatelliteList() {
   const list = document.getElementById('satelliteList');
 
-  if (!list) return;
-
   list.innerHTML = '';
 
   satellitesData.forEach(sat => {
     const button = document.createElement('button');
 
-    button.textContent = sat.name;
+    button.textContent =
+      sat.name + ' | NORAD ' + sat.norad;
+
     button.style.display = 'block';
-    button.style.margin = '6px';
-    button.style.padding = '10px';
+    button.style.width = '100%';
+    button.style.margin = '8px 0';
+    button.style.padding = '12px';
 
     button.onclick = () => {
       map.setView([sat.lat, sat.lon], 5);
-      showSatelliteInfo(sat);
+      showSatelliteInfo(sat.norad);
     };
 
     list.appendChild(button);
   });
 }
 
-// GPS گوشی
+// موقعیت GPS گوشی
 function getLocation() {
   const output = document.getElementById('location');
 
@@ -231,36 +294,40 @@ function getLocation() {
         'عرض جغرافیایی: ' + lat.toFixed(5) +
         '<br>طول جغرافیایی: ' + lon.toFixed(5);
 
-      map.setView([lat, lon], 7);
-
       if (userMarker) {
         map.removeLayer(userMarker);
       }
 
       userMarker = L.marker([lat, lon])
         .addTo(map)
-        .bindPopup('موقعیت شما')
+        .bindPopup('موقعیت فعلی شما')
         .openPopup();
+
+      map.setView([lat, lon], 7);
+
+      showTab('map');
     },
+
     error => {
       output.innerText =
         error.code === 1
-          ? 'اجازه GPS داده نشد'
-          : 'موقعیت شما دریافت نشد';
+          ? 'اجازه دسترسی به GPS داده نشد'
+          : 'دریافت موقعیت ناموفق بود';
     },
+
     {
       enableHighAccuracy: true,
-      timeout: 15000,
+      timeout: 20000,
       maximumAge: 0
     }
   );
 }
 
-// شروع
+// اجرای اولیه
 loadSatellites();
 
-// به‌روزرسانی موقعیت مداری
+// حرکت زنده ماهواره‌ها
 setInterval(updateSatellitePositions, 5000);
 
-// به‌روزرسانی اطلاعات TLE هر 30 دقیقه
+// دریافت مجدد اطلاعات مداری
 setInterval(loadSatellites, 30 * 60 * 1000);
