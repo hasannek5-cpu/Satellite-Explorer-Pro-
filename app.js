@@ -6,6 +6,87 @@ L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
 }).addTo(map);
 
 const markers = L.layerGroup().addTo(map);
+// لایه مسیر حرکت ماهواره
+const pathLayer = L.layerGroup().addTo(map);
+
+function drawSatellitePath(norad) {
+  pathLayer.clearLayers();
+
+  const sat = satellitesData.find(
+    item => item.norad === String(norad)
+  );
+
+  if (!sat) return;
+
+  const segments = [];
+  let segment = [];
+
+  const now = Date.now();
+  const duration = 90 * 60 * 1000;
+  const step = 2 * 60 * 1000;
+
+  for (let t = 0; t <= duration; t += step) {
+    const date = new Date(now + t);
+
+    try {
+      const result = satellite.propagate(
+        sat.satrec,
+        date
+      );
+
+      if (
+        !result.position ||
+        typeof result.position === 'boolean'
+      ) continue;
+
+      const gmst = satellite.gstime(date);
+
+      const geo = satellite.eciToGeodetic(
+        result.position,
+        gmst
+      );
+
+      const lat = satellite.degreesLat(geo.latitude);
+      const lon = satellite.degreesLong(geo.longitude);
+
+      if (
+        !Number.isFinite(lat) ||
+        !Number.isFinite(lon)
+      ) continue;
+
+      // جلوگیری از اتصال اشتباه مسیر در مرز نقشه
+      if (
+        segment.length &&
+        Math.abs(lon - segment[segment.length - 1][1]) > 180
+      ) {
+        if (segment.length > 1) {
+          segments.push(segment);
+        }
+        segment = [];
+      }
+
+      segment.push([lat, lon]);
+
+    } catch (error) {
+      console.warn('خطای محاسبه مسیر:', error);
+    }
+  }
+
+  if (segment.length > 1) {
+    segments.push(segment);
+  }
+
+  segments.forEach(points => {
+    L.polyline(points, {
+      color: '#ffcc00',
+      weight: 3,
+      opacity: 0.9,
+      dashArray: '8, 7'
+    }).addTo(pathLayer);
+  });
+
+  pathLayer.bringToFront();
+          }
 const markerMap = new Map();
 
 let satellitesData = [];
