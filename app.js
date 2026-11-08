@@ -6,6 +6,13 @@ L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
 }).addTo(map);
 
 const markers = L.layerGroup().addTo(map);
+
+let satellitesData = [];
+let userMarker = null;
+let selectedNorad = null;
+
+let userLocation = null;
+let passSearchBusy = false;
 // لایه مسیر حرکت ماهواره
 const pathLayer = L.layerGroup().addTo(map);
 
