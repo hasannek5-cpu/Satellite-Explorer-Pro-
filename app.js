@@ -459,7 +459,8 @@ function getLocation() {
     position => {
       const lat = position.coords.latitude;
       const lon = position.coords.longitude;
-userLocation = {
+
+      userLocation = {
   lat,
   lon,
   altitude: position.coords.altitude || 0
