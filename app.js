@@ -7,6 +7,7 @@ L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
 
 const markers = L.layerGroup().addTo(map);
 // لایه مسیر حرکت ماهواره
+
 const pathLayer = L.layerGroup().addTo(map);
 
 function drawSatellitePath(norad) {
