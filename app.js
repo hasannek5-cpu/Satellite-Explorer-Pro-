@@ -385,7 +385,8 @@ function showSatelliteInfo(norad) {
   if (!sat) return;
 
   selectedNorad = sat.norad;
-
+drawSatellitePath(sat.norad);
+  
   showTab('info');
   updateSelectedSatellite();
 }
