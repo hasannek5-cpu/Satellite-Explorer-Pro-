@@ -1,1 +1,44 @@
 
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#071426">
+<title>کاوشگر ماهواره</title>
+<link rel="manifest" href="manifest.json">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+<h2>🛰️ کاوشگر ماهواره</h2>
+<p>سامانه ماهواره‌های غیرنظامی</p>
+</header>
+
+<nav>
+<button onclick="showTab('map')">نقشه</button>
+<button onclick="showTab('info')">اطلاعات</button>
+<button onclick="showTab('gps')">موقعیت من</button>
+</nav>
+
+<section id="mapTab">
+<div id="map"></div>
+</section>
+
+<section id="infoTab" hidden>
+<h3>اطلاعات ماهواره</h3>
+<div id="details">یک ماهواره انتخاب کنید.</div>
+</section>
+
+<section id="gpsTab" hidden>
+<h3>GPS گوشی</h3>
+<button onclick="getLocation()">دریافت موقعیت</button>
+<div id="location"></div>
+</section>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
+
