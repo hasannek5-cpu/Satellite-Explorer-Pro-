@@ -1,13 +1,13 @@
 
 {
-  "id": "/Satellite-Explorer-Pro/",
+  "id": "/Satellite-Explorer-Pro1/",
   "name": "کاوشگر ماهواره غیرنظامی",
   "short_name": "کاوشگر ماهواره",
   "description": "سامانه نمایش و بررسی ماهواره‌های غیرنظامی",
   "lang": "fa",
   "dir": "rtl",
-  "start_url": "/Satellite-Explorer-Pro/",
-  "scope": "/Satellite-Explorer-Pro/",
+  "start_url": "/Satellite-Explorer-Pro1/",
+  "scope": "/Satellite-Explorer-Pro1/",
   "display": "standalone",
   "orientation": "portrait",
   "background_color": "#071426",
