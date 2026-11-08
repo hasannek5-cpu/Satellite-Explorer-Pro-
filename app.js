@@ -459,7 +459,11 @@ function getLocation() {
     position => {
       const lat = position.coords.latitude;
       const lon = position.coords.longitude;
-
+userLocation = {
+  lat,
+  lon,
+  altitude: position.coords.altitude || 0
+};
       output.innerHTML =
         'عرض جغرافیایی: ' + lat.toFixed(5) +
         '<br>طول جغرافیایی: ' + lon.toFixed(5);
