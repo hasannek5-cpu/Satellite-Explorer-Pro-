@@ -1,9 +1,22 @@
 
 // ==========================================
 // کاوشگر ماهواره - نسخه کامل اصلاح شده
+// پیش‌بینی عبور ماهواره + GPS + مسیر مداری
 // ==========================================
 
+// بررسی بارگذاری کتابخانه‌ها
+if (typeof L === 'undefined') {
+  throw new Error('کتابخانه Leaflet بارگذاری نشده است.');
+}
+
+if (typeof satellite === 'undefined') {
+  throw new Error('کتابخانه satellite.js بارگذاری نشده است.');
+}
+
+// ==========================================
 // ایجاد نقشه
+// ==========================================
+
 const map = L.map('map').setView([25, 15], 2);
 
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -35,18 +48,28 @@ const SATELLITE_GROUPS = [
   'amateur'
 ];
 
+// ==========================================
 // مدیریت تب‌ها
+// ==========================================
+
 function showTab(tab) {
-  document.getElementById('mapTab').hidden = tab !== 'map';
-  document.getElementById('infoTab').hidden = tab !== 'info';
-  document.getElementById('gpsTab').hidden = tab !== 'gps';
+  const mapTab = document.getElementById('mapTab');
+  const infoTab = document.getElementById('infoTab');
+  const gpsTab = document.getElementById('gpsTab');
+
+  if (mapTab) mapTab.hidden = tab !== 'map';
+  if (infoTab) infoTab.hidden = tab !== 'info';
+  if (gpsTab) gpsTab.hidden = tab !== 'gps';
 
   if (tab === 'map') {
     setTimeout(() => map.invalidateSize(), 200);
   }
 }
 
+// ==========================================
 // جلوگیری از تزریق HTML
+// ==========================================
+
 function escapeHTML(value) {
   return String(value).replace(/[&<>"']/g, c => ({
     '&': '&amp;',
@@ -57,7 +80,10 @@ function escapeHTML(value) {
   })[c]);
 }
 
+// ==========================================
 // تبدیل اطلاعات TLE به ماهواره
+// ==========================================
+
 function parseTLE(content, group) {
   const lines = content
     .split(/\r?\n/)
@@ -114,11 +140,14 @@ function parseTLE(content, group) {
   return result;
 }
 
-// دریافت اطلاعات تمام گروه‌ها
+// ==========================================
+// دریافت اطلاعات ماهواره‌ها
+// ==========================================
+
 async function loadSatellites() {
   const details = document.getElementById('details');
 
-  if (details) {
+  if (details && satellitesData.length === 0) {
     details.innerText =
       'در حال دریافت اطلاعات ماهواره‌های غیرنظامی...';
   }
@@ -184,7 +213,7 @@ async function loadSatellites() {
     updateSatellitePositions();
     renderSatelliteList();
 
-    if (details) {
+    if (details && !selectedNorad) {
       details.innerText =
         satellitesData.length +
         ' ماهواره دریافت شد از ' +
@@ -195,14 +224,17 @@ async function loadSatellites() {
   } catch (error) {
     console.error('خطای دریافت ماهواره‌ها:', error);
 
-    if (details) {
+    if (details && !selectedNorad) {
       details.innerText =
         'خطا در دریافت اطلاعات ماهواره‌ها';
     }
   }
 }
 
+// ==========================================
 // محاسبه موقعیت ماهواره‌ها
+// ==========================================
+
 function updateSatellitePositions() {
   const now = new Date();
 
@@ -273,7 +305,10 @@ function updateSatellitePositions() {
   updateSelectedSatellite();
 }
 
+// ==========================================
 // نمایش نقاط آبی ماهواره‌ها
+// ==========================================
+
 function updateMarkers() {
   satellitesData.forEach(sat => {
     if (
@@ -331,7 +366,10 @@ function updateMarkers() {
   }
 }
 
+// ==========================================
 // رسم مسیر حرکت ماهواره
+// ==========================================
+
 function drawSatellitePath(norad) {
   pathLayer.clearLayers();
 
@@ -423,7 +461,10 @@ function drawSatellitePath(norad) {
   pathLayer.bringToFront();
 }
 
+// ==========================================
 // نمایش اطلاعات ماهواره انتخاب‌شده
+// ==========================================
+
 function showSatelliteInfo(norad) {
   const sat = satellitesData.find(
     item => item.norad === String(norad)
@@ -440,7 +481,10 @@ function showSatelliteInfo(norad) {
   updateSelectedSatellite();
 }
 
-// به‌روزرسانی جزئیات ماهواره
+// ==========================================
+// مرحله ۱: اطلاعات + دکمه پیش‌بینی عبور
+// ==========================================
+
 function updateSelectedSatellite() {
   if (!selectedNorad) return;
 
@@ -456,38 +500,67 @@ function updateSelectedSatellite() {
 
   details.innerHTML = `
     <div dir="rtl">
-      <h3>${escapeHTML(sat.name)}</h3>
+
+      <h3>🛰️ ${escapeHTML(sat.name)}</h3>
 
       <p>شناسه NORAD: ${sat.norad}</p>
 
-      <p>گروه ماهواره:
+      <p>
+        گروه ماهواره:
         ${escapeHTML(sat.group)}
       </p>
 
-      <p>عرض جغرافیایی:
+      <p>
+        عرض جغرافیایی:
         ${sat.lat.toFixed(5)} درجه
       </p>
 
-      <p>طول جغرافیایی:
+      <p>
+        طول جغرافیایی:
         ${sat.lon.toFixed(5)} درجه
       </p>
 
-      <p>ارتفاع:
+      <p>
+        ارتفاع:
         ${sat.altitude.toFixed(2)} کیلومتر
       </p>
 
-      <p>سرعت:
+      <p>
+        سرعت:
         ${sat.speed.toFixed(3)} کیلومتر بر ثانیه
       </p>
 
-      <p>آخرین محاسبه:
+      <p>
+        آخرین محاسبه:
         ${new Date().toLocaleTimeString('fa-IR')}
       </p>
+
+      <button
+        type="button"
+        onclick="predictSatellitePass('${sat.norad}')"
+        style="
+          width:100%;
+          padding:14px;
+          margin-top:12px;
+          border:0;
+          border-radius:10px;
+          background:#087cf0;
+          color:white;
+          font-size:16px;
+          font-weight:bold;
+          cursor:pointer;
+        ">
+        🔭 پیش‌بینی زمان عبور ماهواره
+      </button>
+
     </div>
   `;
 }
 
+// ==========================================
 // نمایش فهرست ماهواره‌ها
+// ==========================================
+
 function renderSatelliteList() {
   const list = document.getElementById('satelliteList');
 
@@ -515,7 +588,10 @@ function renderSatelliteList() {
   });
 }
 
+// ==========================================
 // دریافت موقعیت GPS گوشی
+// ==========================================
+
 function getLocation() {
   const output = document.getElementById('location');
 
@@ -572,7 +648,10 @@ function getLocation() {
   );
 }
 
-// ساخت پنل پیش‌بینی عبور
+// ==========================================
+// مرحله ۲: ساخت پنل پیش‌بینی عبور
+// ==========================================
+
 function getPassPanel() {
   let panel = document.getElementById('passDetails');
 
@@ -582,20 +661,20 @@ function getPassPanel() {
     panel.id = 'passDetails';
     panel.dir = 'rtl';
 
-    panel.style.cssText =
-      'margin:12px;padding:15px;' +
-      'border:1px solid #00bcd4;' +
-      'border-radius:12px;' +
-      'background:#101d30;color:white;' +
-      'line-height:2;';
+    panel.style.cssText = `
+      margin:12px 0;
+      padding:15px;
+      border:1px solid #00bcd4;
+      border-radius:12px;
+      background:#101d30;
+      color:white;
+      line-height:2;
+    `;
 
-    const location = document.getElementById('location');
+    const infoTab = document.getElementById('infoTab');
 
-    if (location) {
-      location.insertAdjacentElement(
-        'afterend',
-        panel
-      );
+    if (infoTab) {
+      infoTab.appendChild(panel);
     } else {
       document.body.appendChild(panel);
     }
@@ -604,7 +683,10 @@ function getPassPanel() {
   return panel;
 }
 
+// ==========================================
 // پیش‌بینی عبور ماهواره در ۲۴ ساعت آینده
+// ==========================================
+
 function predictSatellitePass(norad) {
   const panel = getPassPanel();
 
@@ -629,7 +711,7 @@ function predictSatellitePass(norad) {
   passSearchBusy = true;
 
   panel.innerText =
-    'در حال محاسبه عبور ماهواره...';
+    'در حال محاسبه عبور ماهواره در ۲۴ ساعت آینده...';
 
   try {
     const observer = {
@@ -724,7 +806,7 @@ function predictSatellitePass(norad) {
 
     if (passes.length === 0) {
       panel.innerText =
-        'در ۲۴ ساعت آینده عبوری پیش‌بینی نشد.';
+        'در ۲۴ ساعت آینده عبوری برای این ماهواره پیش‌بینی نشد.';
       return;
     }
 
@@ -736,7 +818,8 @@ function predictSatellitePass(norad) {
     panel.innerHTML = `
       <h3>🛰️ پیش‌بینی عبور ماهواره</h3>
 
-      <p>نام:
+      <p>
+        نام ماهواره:
         ${escapeHTML(sat.name)}
       </p>
 
@@ -744,29 +827,37 @@ function predictSatellitePass(norad) {
 
       <hr>
 
-      <p>شروع عبور:
+      <p>
+        شروع عبور:
         ${formatTime(first.start)}
       </p>
 
-      <p>اوج ارتفاع:
+      <p>
+        اوج ارتفاع:
         ${first.peak.toFixed(2)} درجه
       </p>
 
-      <p>زمان اوج:
+      <p>
+        زمان اوج:
         ${formatTime(first.peakTime)}
       </p>
 
-      <p>نزدیک‌ترین فاصله:
+      <p>
+        نزدیک‌ترین فاصله:
         ${first.minRange.toFixed(1)} کیلومتر
       </p>
 
-      <p>پایان عبور:
-        ${first.end
-          ? formatTime(first.end)
-          : 'در حال عبور'}
+      <p>
+        پایان عبور:
+        ${
+          first.end
+            ? formatTime(first.end)
+            : 'در حال عبور'
+        }
       </p>
 
-      <p>مدت عبور:
+      <p>
+        مدت عبور:
         ${
           first.end
             ? Math.round(
@@ -780,14 +871,16 @@ function predictSatellitePass(norad) {
 
       <h4>عبورهای بعدی</h4>
 
-      ${passes.slice(1, 4).map((p, i) => `
-        <p>
-          ${i + 2}. ${formatTime(p.start)}
-          <br>
-          اوج ارتفاع:
-          ${p.peak.toFixed(1)} درجه
-        </p>
-      `).join('')}
+      ${
+        passes.slice(1, 4).map((p, i) => `
+          <p>
+            ${i + 2}. ${formatTime(p.start)}
+            <br>
+            اوج ارتفاع:
+            ${p.peak.toFixed(1)} درجه
+          </p>
+        `).join('')
+      }
     `;
 
   } catch (error) {
