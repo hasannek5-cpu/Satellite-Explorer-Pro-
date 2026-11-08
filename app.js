@@ -501,3 +501,160 @@ setInterval(updateSatellitePositions, 5000);
 
 // دریافت مجدد اطلاعات مداری هر ۳۰ دقیقه
 setInterval(loadSatellites, 30 * 60 * 1000);
+function getPassPanel() {
+  let panel = document.getElementById('passDetails');
+
+  if (!panel) {
+    panel = document.createElement('div');
+    panel.id = 'passDetails';
+    panel.dir = 'rtl';
+
+    panel.style.cssText =
+      'margin:12px;padding:15px;' +
+      'border:1px solid #00bcd4;' +
+      'border-radius:12px;' +
+      'background:#101d30;color:white;line-height:2;';
+
+    const location = document.getElementById('location');
+
+    if (location) {
+      location.insertAdjacentElement('afterend', panel);
+    } else {
+      document.body.appendChild(panel);
+    }
+  }
+
+  return panel;
+}
+
+function predictSatellitePass(norad) {
+  if (!userLocation) {
+    getPassPanel().innerText =
+      'ابتدا موقعیت GPS گوشی را دریافت کنید.';
+    return;
+  }
+
+  if (passSearchBusy) return;
+
+  const sat = satellitesData.find(
+    item => item.norad === String(norad)
+  );
+
+  if (!sat) return;
+
+  passSearchBusy = true;
+
+  const panel = getPassPanel();
+  panel.innerText = 'در حال محاسبه عبور ماهواره...';
+
+  try {
+    const observer = {
+      longitude: userLocation.lon * Math.PI / 180,
+      latitude: userLocation.lat * Math.PI / 180,
+      height: (userLocation.altitude || 0) / 1000
+    };
+
+    const now = Date.now();
+    const duration = 24 * 60 * 60 * 1000;
+    const step = 30 * 1000;
+    const passes = [];
+    let currentPass = null;
+
+    for (let t = 0; t <= duration; t += step) {
+      const date = new Date(now + t);
+
+      const result = satellite.propagate(
+        sat.satrec,
+        date
+      );
+
+      if (
+        !result.position ||
+        typeof result.position === 'boolean'
+      ) continue;
+
+      const gmst = satellite.gstime(date);
+
+      const positionEcf = satellite.eciToEcf(
+        result.position,
+        gmst
+      );
+
+      const look = satellite.ecfToLookAngles(
+        observer,
+        positionEcf
+      );
+
+      const elevation = look.elevation * 180 / Math.PI;
+      const range = look.rangeSat;
+
+      if (!Number.isFinite(elevation) ||
+          !Number.isFinite(range)) continue;
+
+      if (elevation >= 0) {
+        if (!currentPass) {
+          currentPass = {
+            start: date,
+            peak: elevation,
+            peakTime: date,
+            minRange: range,
+            end: null
+          };
+        }
+
+        if (elevation > currentPass.peak) {
+          currentPass.peak = elevation;
+          currentPass.peakTime = date;
+        }
+
+        currentPass.minRange = Math.min(
+          currentPass.minRange,
+          range
+        );
+
+      } else if (currentPass) {
+        currentPass.end = date;
+        passes.push(currentPass);
+        currentPass = null;
+      }
+    }
+
+    if (currentPass) passes.push(currentPass);
+
+    if (!passes.length) {
+      panel.innerText =
+        'در ۲۴ ساعت آینده عبوری پیش‌بینی نشد.';
+      return;
+    }
+
+    const first = passes[0];
+
+    const formatTime = date =>
+      date.toLocaleString('fa-IR');
+
+    panel.innerHTML = `
+      <h3>🛰️ پیش‌بینی عبور ماهواره</h3>
+      <p>نام: ${escapeHTML(sat.name)}</p>
+      <p>NORAD: ${sat.norad}</p>
+      <hr>
+      <p>شروع عبور: ${formatTime(first.start)}</p>
+      <p>اوج ارتفاع: ${first.peak.toFixed(2)} درجه</p>
+      <p>زمان اوج: ${formatTime(first.peakTime)}</p>
+      <p>نزدیک‌ترین فاصله: ${first.minRange.toFixed(1)} کیلومتر</p>
+      <p>پایان عبور: ${first.end ? formatTime(first.end) : 'در حال عبور'}</p>
+      <p>مدت عبور: ${first.end ? Math.round((first.end-first.start)/60000)+' دقیقه' : 'در حال عبور'}</p>
+      <hr>
+      <h4>عبورهای بعدی</h4>
+      ${passes.slice(0,3).map((p,i)=>`
+        <p>${i+1}. ${formatTime(p.start)}
+        <br>اوج ارتفاع: ${p.peak.toFixed(1)} درجه</p>
+      `).join('')}
+    `;
+
+  } catch (error) {
+    panel.innerText = 'خطای محاسبه: ' + error.message;
+  } finally {
+    passSearchBusy = false;
+  }
+}
+
