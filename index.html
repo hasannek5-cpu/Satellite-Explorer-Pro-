@@ -5,44 +5,63 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#071426">
+
 <title>کاوشگر ماهواره</title>
+
 <link rel="manifest" href="/Satellite-Explorer-Pro1/manifest.json">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <link rel="stylesheet" href="style.css">
+
 </head>
 <body>
+
 <header>
-<h2>🛰️ کاوشگر ماهواره</h2>
-<p>سامانه ماهواره‌های غیرنظامی</p>
+  <h2>🛰️ کاوشگر ماهواره</h2>
+  <p>سامانه ماهواره‌های غیرنظامی</p>
 </header>
 
 <nav>
-<button onclick="showTab('map')">نقشه</button>
-<button onclick="showTab('info')">اطلاعات</button>
-<button onclick="showTab('gps')">موقعیت من</button>
+  <button onclick="showTab('map')">نقشه</button>
+  <button onclick="showTab('info')">اطلاعات</button>
+  <button onclick="showTab('gps')">موقعیت من</button>
 </nav>
 
+<!-- نقشه -->
 <section id="mapTab">
-<div id="map"></div>
+  <div id="map"></div>
 </section>
 
+<!-- اطلاعات ماهواره -->
 <section id="infoTab" hidden>
-<h3>اطلاعات ماهواره</h3>
-<div id="details">یک ماهواره انتخاب کنید.</div>
-<div id="details">در انتظار اطلاعات ماهواره...</div>
-<div id="satelliteList"></div>
+  <h3>اطلاعات ماهواره</h3>
+
+  <div id="details">
+    یک ماهواره انتخاب کنید.
+  </div>
+
+  <h3>فهرست ماهواره‌ها</h3>
+  <div id="satelliteList"></div>
 </section>
 
+<!-- موقعیت GPS -->
 <section id="gpsTab" hidden>
-<h3>GPS گوشی</h3>
-<button onclick="getLocation()">دریافت موقعیت</button>
-<div id="location"></div>
+  <h3>GPS گوشی</h3>
+
+  <button onclick="getLocation()">
+    دریافت موقعیت
+  </button>
+
+  <div id="location"></div>
 </section>
 
+<!-- کتابخانه نقشه -->
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+<!-- محاسبه مدار ماهواره -->
 <script src="https://cdn.jsdelivr.net/npm/satellite.js@6.0.1/dist/satellite.min.js"></script>
-<script src="app.js"></script>
-  <script src="app.js"></script>
+
+<!-- فایل اصلی برنامه -->
+<script src="/Satellite-Explorer-Pro1/app.js"></script>
+
 </body>
 </html>
-
