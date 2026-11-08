@@ -93,6 +93,8 @@ const markerMap = new Map();
 let satellitesData = [];
 let userMarker = null;
 let selectedNorad = null;
+let userLocation = null;
+let passSearchBusy = false;
 
 // گروه‌های ماهواره‌ای غیرنظامی
 const SATELLITE_GROUPS = [
