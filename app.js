@@ -461,6 +461,7 @@ function showSatelliteInfo(norad) {
 
   showTab('info');
 
+ earth: document.getElementById('earthTab')  
   updateSelectedSatellite();
 }
 
