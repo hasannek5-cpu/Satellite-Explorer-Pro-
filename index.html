@@ -3,13 +3,20 @@
 <html lang="fa" dir="rtl">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="theme-color" content="#071426">
-<meta name="description" content="کاوشگر ماهواره، موقعیت‌یابی GPS، ردیابی ماهواره و تحلیل حرارتی و طیفی زمین">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 
-<title>کاوشگر ماهواره</title>
+<meta name="theme-color" content="#071426">
+<meta name="description" content="کاوشگر ماهواره غیرنظامی؛ نمایش نقشه، ردیابی ماهواره‌ها، موقعیت‌یابی GPS و تحلیل زمین">
+
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+
+<title>کاوشگر ماهواره غیرنظامی</title>
 
 <link rel="manifest" href="/Satellite-Explorer-Pro1/manifest.json">
+<link rel="icon" type="image/png" href="/Satellite-Explorer-Pro1/icon-192.png">
+<link rel="apple-touch-icon" href="/Satellite-Explorer-Pro1/icon-192.png">
 
 <link rel="stylesheet"
 href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
@@ -21,14 +28,62 @@ href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
   display: none !important;
 }
 
-#map {
-  width: 100%;
-  height: 65vh;
-  min-height: 350px;
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: #071426;
+  color: #fff;
+  font-family: Tahoma, sans-serif;
+}
+
+header {
+  padding: 15px;
+  text-align: center;
+}
+
+header h2 {
+  margin-bottom: 8px;
+}
+
+nav {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 7px;
+  padding: 10px;
+  position: sticky;
+  top: 0;
+  z-index: 1000;
+  background: #071426;
+}
+
+nav button {
+  border: 1px solid #294764;
+  background: #10243a;
+  color: white;
+  padding: 11px 13px;
+  border-radius: 9px;
+  cursor: pointer;
+}
+
+nav button.active {
+  background: #087eae;
+  border-color: #25baff;
 }
 
 section {
   padding: 12px;
+}
+
+#map {
+  width: 100%;
+  height: 65vh;
+  min-height: 350px;
+  border-radius: 12px;
+  overflow: hidden;
 }
 
 button {
@@ -41,6 +96,7 @@ button {
   padding: 15px;
   margin: 12px 0;
   border-radius: 12px;
+  border: 1px solid #294764;
 }
 
 .sensor-panel button {
@@ -48,11 +104,33 @@ button {
   margin: 5px;
   border: 0;
   border-radius: 8px;
+  background: #087eae;
+  color: white;
 }
 
 .sensor-result {
   line-height: 2;
   overflow-wrap: anywhere;
+}
+
+#details,
+#satelliteList,
+#location {
+  background: #10243a;
+  border-radius: 10px;
+  padding: 12px;
+  margin: 10px 0;
+}
+
+@media(max-width:480px) {
+  nav button {
+    font-size: 12px;
+    padding: 10px;
+  }
+
+  #map {
+    height: 62vh;
+  }
 }
 </style>
 </head>
@@ -65,35 +143,25 @@ button {
 </header>
 
 <nav>
-  <button onclick="showTab('map')">🗺 نقشه</button>
+  <button class="active" onclick="showTab('map')">🗺 نقشه</button>
   <button onclick="showTab('info')">🛰 اطلاعات</button>
   <button onclick="showTab('gps')">📍 موقعیت من</button>
   <button onclick="showTab('earth')">🌍 تحلیل زمین</button>
 </nav>
 
-<!-- نقشه ماهواره -->
 <section id="mapTab">
   <div id="map"></div>
 </section>
 
-<!-- اطلاعات ماهواره -->
 <section id="infoTab" hidden>
-
   <h3>اطلاعات ماهواره</h3>
-
-  <div id="details">
-    یک ماهواره انتخاب کنید.
-  </div>
+  <div id="details">یک ماهواره انتخاب کنید.</div>
 
   <h3>فهرست ماهواره‌ها</h3>
-
   <div id="satelliteList"></div>
-
 </section>
 
-<!-- موقعیت GPS -->
 <section id="gpsTab" hidden>
-
   <h3>📍 موقعیت GPS گوشی</h3>
 
   <button onclick="getLocation()">
@@ -101,12 +169,9 @@ button {
   </button>
 
   <div id="location" class="sensor-result"></div>
-
 </section>
 
-<!-- تحلیل زمین -->
 <section id="earthTab" hidden>
-
   <h3>🌍 سامانه تحلیل زمین</h3>
 
   <div class="sensor-panel">
@@ -143,17 +208,48 @@ button {
     توجه: نتایج حرارتی و طیفی به داده‌های ماهواره‌ای معتبر وابسته‌اند.
     تشخیص قطعی معدن به بررسی میدانی و آزمایش نمونه نیاز دارد.
   </p>
-
 </section>
 
-<!-- کتابخانه نقشه -->
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
-<!-- محاسبه مدار ماهواره -->
 <script src="https://cdn.jsdelivr.net/npm/satellite.js@6.0.1/dist/satellite.min.js"></script>
 
-<!-- فایل اصلی برنامه -->
 <script src="./app.js"></script>
 <script src="./earth-analysis.js"></script>
+
+<script>
+function showTab(tab) {
+
+  const tabs = ['map', 'info', 'gps', 'earth'];
+
+  tabs.forEach(name => {
+    const section = document.getElementById(name + 'Tab');
+    if (section) {
+      section.hidden = name !== tab;
+    }
+  });
+
+  document.querySelectorAll('nav button').forEach((button, index) => {
+    button.classList.toggle('active', tabs[index] === tab);
+  });
+
+  if (tab === 'map' && window.map) {
+    setTimeout(() => {
+      window.map.invalidateSize();
+    }, 150);
+  }
+}
+
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register(
+      '/Satellite-Explorer-Pro1/service-worker.js'
+    ).catch(error => {
+      console.error('Service Worker Error:', error);
+    });
+  });
+}
+</script>
+
 </body>
 </html>
