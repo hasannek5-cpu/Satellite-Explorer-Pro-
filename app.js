@@ -914,3 +914,183 @@ setInterval(
   loadSatellites,
   30 * 60 * 1000
 );
+
+/* ==========================================
+   بخش جدید: اطلاعات ارتباط ماهواره‌ای
+   ========================================== */
+
+const RADIO_DATABASE = {
+  "25544": {
+    title: "ISS (ZARYA)",
+    status: "دارای اطلاعات رادیویی آماتوری",
+    modes: [
+      {
+        name: "APRS / Packet",
+        uplink: "145.825 MHz",
+        downlink: "145.825 MHz",
+        protocol: "AFSK / AX.25"
+      },
+      {
+        name: "رله صوتی FM",
+        uplink: "145.990 MHz",
+        downlink: "437.800 MHz",
+        protocol: "FM - CTCSS 67 Hz"
+      },
+      {
+        name: "ارتباط صوتی اروپا",
+        uplink: "145.200 MHz",
+        downlink: "145.800 MHz",
+        protocol: "FM"
+      }
+    ],
+    source: "https://www.amsat.org/amateur-radio-on-the-iss/"
+  },
+
+  "67683": {
+    title: "KNACKSAT-2",
+    status: "دارای اطلاعات ارتباطی منتشرشده",
+    modes: [
+      {
+        name: "APRS / Telemetry",
+        uplink: "نیازمند تأیید",
+        downlink: "145.825 MHz",
+        protocol: "9k6 FSK / APRS"
+      }
+    ],
+    source: "https://www.amsat.org/live-digipeater-satellites/"
+  }
+};
+
+// تابع نمایش اطلاعات ارتباطی
+function renderSatelliteCommunication() {
+  const details = document.getElementById("details");
+
+  if (!details || !selectedNorad) return;
+
+  const sat = satellitesData.find(
+    s => s.norad === selectedNorad
+  );
+
+  if (!sat) return;
+
+  const oldPanel = document.getElementById("radioPanel");
+
+  if (oldPanel) oldPanel.remove();
+
+  const data = RADIO_DATABASE[sat.norad];
+
+  const panel = document.createElement("section");
+
+  panel.id = "radioPanel";
+  panel.dir = "rtl";
+
+  panel.style.cssText = `
+    margin-top:18px;
+    padding:15px;
+    border:1px solid #00bcd4;
+    border-radius:12px;
+    background:#10243a;
+    color:white;
+    line-height:2;
+  `;
+
+  const heading = document.createElement("h3");
+  heading.textContent = "📡 ارتباط ماهواره‌ای";
+
+  panel.appendChild(heading);
+
+  const name = document.createElement("p");
+  name.textContent = "ماهواره: " + sat.name;
+  panel.appendChild(name);
+
+  const norad = document.createElement("p");
+  norad.textContent = "شناسه NORAD: " + sat.norad;
+  panel.appendChild(norad);
+
+  if (!data) {
+    const message = document.createElement("p");
+
+    message.textContent =
+      "برای این ماهواره اطلاعات فرکانسی عمومی و تأییدشده در پایگاه فعلی ثبت نشده است.";
+
+    panel.appendChild(message);
+
+    const note = document.createElement("p");
+    note.textContent =
+      "فرکانس، پروتکل و مجوز ارتباط باید پیش از هرگونه ارسال بررسی شوند.";
+
+    panel.appendChild(note);
+
+  } else {
+    const status = document.createElement("p");
+    status.textContent = "وضعیت اطلاعات: " + data.status;
+    panel.appendChild(status);
+
+    data.modes.forEach(mode => {
+      const box = document.createElement("div");
+
+      box.style.cssText = `
+        margin-top:12px;
+        padding:10px;
+        border-radius:9px;
+        background:#183652;
+      `;
+
+      const title = document.createElement("h4");
+      title.textContent = mode.name;
+
+      const up = document.createElement("p");
+      up.textContent = "فرکانس ارسال: " + mode.uplink;
+
+      const down = document.createElement("p");
+      down.textContent = "فرکانس دریافت: " + mode.downlink;
+
+      const protocol = document.createElement("p");
+      protocol.textContent = "پروتکل: " + mode.protocol;
+
+      box.append(title, up, down, protocol);
+      panel.appendChild(box);
+    });
+
+    const source = document.createElement("a");
+
+    source.href = data.source;
+    source.target = "_blank";
+    source.rel = "noopener noreferrer";
+    source.textContent = "مشاهده منبع اطلاعات فرکانسی";
+
+    source.style.cssText = `
+      display:block;
+      margin-top:12px;
+      color:#55dfff;
+    `;
+
+    panel.appendChild(source);
+  }
+
+  const warning = document.createElement("p");
+
+  warning.textContent =
+    "توجه: نمایش فرکانس به معنی برقراری ارتباط واقعی نیست. ارسال رادیویی به تجهیزات، مجوز و بررسی وضعیت عملیاتی نیاز دارد.";
+
+  warning.style.cssText = `
+    margin-top:15px;
+    color:#ffd166;
+    font-size:13px;
+  `;
+
+  panel.appendChild(warning);
+
+  details.appendChild(panel);
+}
+
+// اتصال پنل به اطلاعات ماهواره انتخاب‌شده
+const originalUpdateSelectedSatellite =
+  updateSelectedSatellite;
+
+updateSelectedSatellite = function() {
+  originalUpdateSelectedSatellite();
+  renderSatelliteCommunication();
+};
+
+console.log("Satellite Radio Information Loaded");
