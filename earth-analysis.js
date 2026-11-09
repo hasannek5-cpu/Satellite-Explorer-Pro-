@@ -319,8 +319,7 @@
       entries.forEach(([name], index) => {
         values[name] = scaledReflectance(samples[index]);
       });
-
-      const ndvi = ratio(values.nir - values.red, values.nir + values.red);
+      const ndvi = ratio(values.nir, values.red);
       const ironRatio = values.blue > 0 ? values.red / values.blue : null;
       const clayRatio = values.swir22 > 0 ? values.swir16 / values.swir22 : null;
       const bsiDenominator = values.swir16 + values.red + values.nir + values.blue;
