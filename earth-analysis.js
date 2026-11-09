@@ -1,1590 +1,2261 @@
 
 /* =========================================================
-   🛰️ Satellite Explorer - Earth Analysis + Regional Aircraft
-   نسخه اعتبارسنجی علمی داده‌های Sentinel-2 و Landsat
-   این فایل را بعد از app.js بارگذاری کنید.
+   🛰️ کاوشگر ماهواره Pro
+   نسخه کامل و بهینه‌شده
+   GPS + نقشه + ماهواره‌ها + مسیر مداری + پیش‌بینی عبور
+   اطلاعات رادیویی + ردیابی پروازهای منطقه
    ========================================================= */
 
 (() => {
-  'use strict';
+'use strict';
 
-  if (typeof L === 'undefined' || typeof map === 'undefined') {
-    console.error('Earth analysis: Leaflet/map is not ready.');
-    return;
+// =========================================================
+// 1. بررسی کتابخانه‌ها
+// =========================================================
+
+if (typeof L === 'undefined') {
+  throw new Error('Leaflet بارگذاری نشده است.');
+}
+
+if (typeof satellite === 'undefined') {
+  throw new Error('satellite.js بارگذاری نشده است.');
+}
+
+if (!document.getElementById('map')) {
+  throw new Error('عنصر نقشه با شناسه map پیدا نشد.');
+}
+
+// جلوگیری از اجرای چندباره
+if (window.SatelliteExplorerPro?.destroy) {
+  window.SatelliteExplorerPro.destroy();
+}
+
+// =========================================================
+// 2. تنظیمات اصلی
+// =========================================================
+
+const CONFIG = {
+  satelliteGroups: [
+    'stations',
+    'weather',
+    'noaa',
+    'goes',
+    'resource',
+    'sarsat',
+    'cubesat',
+    'education',
+    'amateur'
+  ],
+
+  satelliteRefreshMs: 30 * 60 * 1000,
+  positionRefreshMs: 5000,
+  aircraftRefreshMs: 30 * 60 * 1000,
+
+  aircraftRadiusKm: 20000,
+
+  passSearchHours: 24,
+  passStepMs: 30000,
+  passBoundaryIterations: 18,
+
+  pathMinutes: 90,
+  pathStepMs: 120000
+};
+
+// =========================================================
+// 3. اطلاعات رادیویی
+// =========================================================
+
+const RADIO_DATABASE = {
+  '25544': {
+    title: 'ISS (ZARYA)',
+
+    status:
+      'اطلاعات رادیویی منتشرشده؛ وضعیت عملیاتی باید بررسی شود.',
+
+    modes: [
+      {
+        name: 'APRS / Packet',
+        uplink: '145.825 MHz',
+        downlink: '145.825 MHz',
+        protocol: 'AFSK / AX.25'
+      },
+      {
+        name: 'رله صوتی FM',
+        uplink: '145.990 MHz',
+        downlink: '437.800 MHz',
+        protocol: 'FM - CTCSS 67 Hz'
+      }
+    ],
+
+    source:
+      'https://www.amsat.org/amateur-radio-on-the-iss/'
   }
+};
 
-  const STAC_URL = 'https://earth-search.aws.element84.com/v1/search';
-  const AIRCRAFT_RADIUS_NM = 120;
-  const REQUEST_TIMEOUT_MS = 25000;
+// =========================================================
+// 4. متغیرهای اصلی
+// =========================================================
 
-  let selectedPoint = null;
-  let mineralBusy = false;
-  let thermalBusy = false;
-  let analysisMarker = null;
+let map;
+let markers;
+let pathLayer;
+let aircraftLayer;
 
-  /* -------------------- پنل و ظاهر -------------------- */
+let userMarker = null;
+let userLocation = null;
 
-  const oldPanel = document.getElementById('earthAnalysisPanel');
-  if (oldPanel) oldPanel.remove();
+let selectedNorad = null;
 
-  const oldStyle = document.getElementById('earthAnalysisStyles');
-  if (oldStyle) oldStyle.remove();
+let satellitesData = [];
+
+let markerMap = new Map();
+let aircraftMarkers = new Map();
+
+let aircraftFetchBusy = false;
+let passSearchBusy = false;
+let satelliteFetchBusy = false;
+
+let destroyed = false;
+let timers = [];
+
+// =========================================================
+// 5. ابزارهای عمومی
+// =========================================================
+
+function byId(id) {
+  return document.getElementById(id);
+}
+
+function finite(value) {
+  return typeof value === 'number' &&
+    Number.isFinite(value);
+}
+
+function escapeHTML(value) {
+  return String(value ?? '').replace(/[&<>"']/g, c => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;'
+  })[c]);
+}
+
+function setText(id, value) {
+  const el = byId(id);
+
+  if (el) {
+    el.textContent = value;
+  }
+}
+
+function addTimer(fn, delay) {
+  const id = setInterval(fn, delay);
+
+  timers.push(id);
+
+  return id;
+}
+
+function formatLocalTime(date, withDate = true) {
+  return new Date(date).toLocaleString(
+    'fa-IR',
+    {
+      ...(withDate ? {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit'
+      } : {}),
+
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit'
+    }
+  );
+}
+
+// =========================================================
+// 6. طراحی و زیباسازی داشبورد
+// =========================================================
+
+function installExplorerStyles() {
+  if (byId('satelliteExplorerStyles')) return;
 
   const style = document.createElement('style');
-  style.id = 'earthAnalysisStyles';
+
+  style.id = 'satelliteExplorerStyles';
+
   style.textContent = `
-    #earthAnalysisPanel {
-      position:absolute; z-index:1000; left:10px; bottom:12px;
-      width:min(370px,calc(100% - 20px)); max-height:52%;
-      overflow:auto; direction:rtl; color:#f4f8ff;
-      background:rgba(12,29,49,.97); border:1px solid #00bcd4;
-      border-radius:12px; padding:12px; box-shadow:0 3px 14px #0008;
-      font:13px/1.9 Tahoma,Arial,sans-serif;
+
+    #map {
+      isolation: isolate;
     }
-    #earthAnalysisPanel h3 {margin:0 0 7px;color:#55dfff;font-size:15px}
-    #earthAnalysisPanel button {
-      width:100%; margin:5px 0; padding:9px; border:0;
-      border-radius:8px; color:white; background:#087cf0;
-      font-weight:bold; font-size:13px;
+
+    .aircraft-icon {
+      background: transparent !important;
+      border: 0 !important;
     }
-    #earthAnalysisPanel button:disabled {opacity:.55}
-    #earthAnalysisPanel .earth-muted {color:#b9c8d8;font-size:11px}
-    #earthAnalysisPanel .earth-result {
-      background:#183652; border-radius:8px; padding:8px; margin-top:8px;
-      overflow-wrap:anywhere;
+
+    .satellite-explorer-control {
+      direction: rtl;
+      color: #eef7ff;
+      background: rgba(8,24,43,.94);
+      border: 1px solid rgba(0,210,255,.48);
+      border-radius: 14px;
+      box-shadow: 0 8px 26px rgba(0,0,0,.28);
+      backdrop-filter: blur(9px);
+      font: 13px/1.9 Tahoma,Arial,sans-serif;
     }
-    #earthAnalysisPanel .earth-ok {color:#8df0b1;font-weight:bold}
-    #earthAnalysisPanel .earth-warn {color:#ffd27a;font-weight:bold}
-    #earthAnalysisPanel .earth-bad {color:#ff9c9c;font-weight:bold}
+
+    .satellite-explorer-control button {
+      cursor: pointer;
+      transition: filter .2s, transform .2s;
+    }
+
+    .satellite-explorer-control button:hover {
+      filter: brightness(1.13);
+    }
+
+    .satellite-explorer-control button:active {
+      transform: scale(.98);
+    }
+
+    .satellite-explorer-control button:disabled {
+      opacity: .55;
+      cursor: wait;
+    }
+
+    .satellite-info-card {
+      margin-top: 12px;
+      padding: 14px;
+      border-radius: 13px;
+      background: linear-gradient(145deg,#102a45,#0b1b30);
+      border: 1px solid rgba(0,210,255,.3);
+      color: #edf7ff;
+      line-height: 2;
+      overflow-wrap: anywhere;
+    }
+
+    .satellite-info-card h3,
+    .satellite-info-card h4 {
+      color: #62ddff;
+    }
+
+    .satellite-list-button {
+      display: block;
+      width: 100%;
+      margin: 7px 0;
+      padding: 11px 12px;
+      border: 1px solid #294967;
+      border-radius: 10px;
+      color: #eaf6ff;
+      background: #102b46;
+      text-align: right;
+    }
+
+    .satellite-list-button:hover {
+      background: #17436a;
+    }
+
+    .satellite-popup {
+      direction: rtl;
+      line-height: 1.9;
+    }
+
+    .aircraft-popup {
+      direction: rtl;
+      line-height: 1.9;
+      min-width: 190px;
+    }
+
+    .leaflet-control-attribution {
+      font-size: 10px;
+    }
+
+    @media(max-width:600px) {
+
+      .satellite-explorer-control {
+        max-width: min(48vw,190px);
+        font-size: 11px;
+      }
+
+      .satellite-explorer-control button {
+        font-size: 12px !important;
+      }
+
+    }
   `;
+
   document.head.appendChild(style);
+}
 
-  const mapContainer = map.getContainer();
+// =========================================================
+// 7. راه‌اندازی نقشه
+// =========================================================
 
-  if (getComputedStyle(mapContainer).position === 'static') {
-    mapContainer.style.position = 'relative';
-  }
+function initializeMap() {
 
-  const panel = document.createElement('section');
-  panel.id = 'earthAnalysisPanel';
+  map = L.map('map', {
+    zoomControl: true,
+    preferCanvas: true,
+    worldCopyJump: true
+  }).setView([25, 15], 2);
 
-  panel.innerHTML = `
-    <h3>🌍 تحلیل نقطه انتخابی</h3>
+  L.tileLayer(
+    'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+    {
+      attribution: '© OpenStreetMap contributors',
+      maxZoom: 19
+    }
+  ).addTo(map);
 
-    <div id="earthPointText">
-      برای شروع، روی یک نقطه از نقشه بزنید.
-    </div>
+  markers = L.layerGroup().addTo(map);
 
-    <button id="earthAnalyzeButton" type="button" disabled>
-      🔬 تحلیل خاک و شاخص‌های طیفی
-    </button>
+  pathLayer = L.layerGroup().addTo(map);
 
-    <button id="earthThermalButton" type="button" disabled>
-      🌡️ دریافت دمای سطح زمین
-    </button>
+  aircraftLayer = L.layerGroup().addTo(map);
+}
 
-    <div id="earthMineralOutput" class="earth-result">
-      شاخص‌های طیفی هنوز دریافت نشده‌اند.
-    </div>
+// =========================================================
+// 8. مدیریت تب‌ها
+// =========================================================
 
-    <div id="earthThermalOutput" class="earth-result">
-      داده حرارتی هنوز دریافت نشده است.
-    </div>
+function showTab(tab) {
 
-    <div class="earth-muted">
-      این خروجی‌ها سنجش‌ازدور اکتشافی هستند؛ شاخص‌های طیفی به‌تنهایی
-      وجود معدن، نوع کانی یا ترکیب شیمیایی خاک را اثبات نمی‌کنند.
-    </div>
-  `;
+  const tabs = {
+    map: byId('mapTab'),
+    info: byId('infoTab'),
+    gps: byId('gpsTab')
+  };
 
-  mapContainer.appendChild(panel);
+  Object.entries(tabs).forEach(([name, el]) => {
 
-  const $ = id => document.getElementById(id);
-
-  function setText(id, value) {
-    const el = $(id);
-    if (el) el.textContent = String(value ?? '');
-  }
-
-  function setHTML(id, value) {
-    const el = $(id);
-    if (el) el.innerHTML = value;
-  }
-
-  function safe(value) {
-    return String(value ?? '').replace(/[&<>"']/g, ch => ({
-      '&': '&amp;',
-      '<': '&lt;',
-      '>': '&gt;',
-      '"': '&quot;',
-      "'": '&#39;'
-    })[ch]);
-  }
-
-  function formatNumber(value, digits = 3) {
-    return Number.isFinite(value)
-      ? value.toFixed(digits)
-      : 'نامشخص';
-  }
-
-  function timeoutSignal(milliseconds) {
-    const controller = new AbortController();
-
-    const timer = window.setTimeout(
-      () => controller.abort(),
-      milliseconds
-    );
-
-    return {
-      controller,
-      clear: () => window.clearTimeout(timer)
-    };
-  }
-
-  /* -------------------- کتابخانه‌های رستری -------------------- */
-
-  function loadScriptOnce(src, globalName) {
-    if (window[globalName]) {
-      return Promise.resolve(window[globalName]);
+    if (el) {
+      el.hidden = name !== tab;
     }
 
-    return new Promise((resolve, reject) => {
-      let script = document.querySelector(
-        `script[data-earth-lib="${globalName}"]`
+  });
+
+  if (tab === 'map' && map) {
+
+    setTimeout(() => {
+      map.invalidateSize(true);
+    }, 180);
+
+  }
+}
+
+window.showTab = showTab;
+
+// =========================================================
+// 9. پردازش اطلاعات TLE
+// =========================================================
+
+function parseTLE(content, group) {
+
+  const lines = String(content)
+    .split(/\r?\n/)
+    .map(line => line.trim())
+    .filter(Boolean);
+
+  const result = [];
+
+  for (let i = 0; i < lines.length - 2; i++) {
+
+    const name = lines[i].replace(/^0\s+/, '').trim();
+
+    const line1 = lines[i + 1];
+    const line2 = lines[i + 2];
+
+    if (
+      !line1.startsWith('1 ') ||
+      !line2.startsWith('2 ')
+    ) {
+      continue;
+    }
+
+    const norad = line1.substring(2, 7).trim();
+
+    if (
+      !norad ||
+      line2.substring(2, 7).trim() !== norad
+    ) {
+      i += 2;
+      continue;
+    }
+
+    try {
+
+      const satrec = satellite.twoline2satrec(
+        line1,
+        line2
       );
 
-      if (
-        script &&
-        script.dataset.loaded === 'true' &&
-        window[globalName]
-      ) {
-        resolve(window[globalName]);
+      if (!satrec || satrec.error) {
+        i += 2;
+        continue;
+      }
+
+      result.push({
+        name: name || `ماهواره ${norad}`,
+        norad,
+        group,
+        satrec,
+        lat: 0,
+        lon: 0,
+        altitude: 0,
+        speed: 0
+      });
+
+      i += 2;
+
+    } catch (error) {
+
+      console.warn(
+        'TLE parse error:',
+        name,
+        error
+      );
+
+      i += 2;
+    }
+  }
+
+  return result;
+}
+
+// =========================================================
+// 10. دریافت ماهواره‌ها
+// =========================================================
+
+async function loadSatellites() {
+
+  if (satelliteFetchBusy || destroyed) return;
+
+  satelliteFetchBusy = true;
+
+  const details = byId('details');
+
+  if (
+    details &&
+    satellitesData.length === 0 &&
+    !selectedNorad
+  ) {
+    details.textContent =
+      'در حال دریافت اطلاعات ماهواره‌ها...';
+  }
+
+  try {
+
+    const results = await Promise.allSettled(
+
+      CONFIG.satelliteGroups.map(async group => {
+
+        const url =
+          'https://celestrak.org/NORAD/elements/gp.php?GROUP=' +
+          encodeURIComponent(group) +
+          '&FORMAT=tle';
+
+        const response = await fetch(url, {
+          method: 'GET',
+          cache: 'no-store',
+          headers: {
+            Accept: 'text/plain'
+          }
+        });
+
+        if (!response.ok) {
+          throw new Error(
+            `${group}: HTTP ${response.status}`
+          );
+        }
+
+        return parseTLE(
+          await response.text(),
+          group
+        );
+
+      })
+
+    );
+
+    const dataMap = new Map();
+
+    let successfulGroups = 0;
+
+    results.forEach(result => {
+
+      if (result.status !== 'fulfilled') {
+
+        console.warn(
+          'Satellite group failed:',
+          result.reason
+        );
+
         return;
       }
 
-      const isNewScript = !script;
+      successfulGroups++;
 
-      if (!script) {
-        script = document.createElement('script');
-        script.src = src;
-        script.async = true;
-        script.dataset.earthLib = globalName;
-      }
+      result.value.forEach(sat => {
 
-      const onLoad = () => {
-        script.dataset.loaded = 'true';
-
-        if (window[globalName]) {
-          resolve(window[globalName]);
-        } else {
-          reject(
-            new Error(
-              `کتابخانه ${globalName} بارگذاری شد اما در دسترس نیست.`
-            )
-          );
+        if (!dataMap.has(sat.norad)) {
+          dataMap.set(sat.norad, sat);
         }
-      };
 
-      const onError = () => {
-        reject(
-          new Error(`بارگذاری کتابخانه ${globalName} ناموفق بود.`)
-        );
-      };
+      });
 
-      script.addEventListener('load', onLoad, { once: true });
-      script.addEventListener('error', onError, { once: true });
-
-      if (isNewScript) {
-        document.head.appendChild(script);
-      }
-
-      window.setTimeout(() => {
-        if (!window[globalName]) {
-          reject(
-            new Error(`مهلت بارگذاری ${globalName} تمام شد.`)
-          );
-        }
-      }, REQUEST_TIMEOUT_MS);
     });
-  }
 
-  async function ensureRasterLibraries() {
-    await Promise.all([
-      loadScriptOnce(
-        'https://cdn.jsdelivr.net/npm/geotiff@2.1.3/dist-browser/geotiff.js',
-        'GeoTIFF'
-      ),
+    const fresh = [...dataMap.values()];
 
-      loadScriptOnce(
-        'https://cdn.jsdelivr.net/npm/proj4@2.11.0/dist/proj4.js',
-        'proj4'
+    if (!fresh.length) {
+
+      if (details && !selectedNorad) {
+
+        details.textContent =
+          satellitesData.length
+            ? 'دریافت جدید ناموفق بود؛ اطلاعات قبلی حفظ شده است.'
+            : 'دریافت اطلاعات ماهواره‌ها ناموفق بود؛ اتصال اینترنت را بررسی کنید.';
+
+      }
+
+      return;
+    }
+
+    const previousSelection = selectedNorad;
+
+    satellitesData = fresh;
+
+    if (
+      !satellitesData.some(
+        s => s.norad === previousSelection
       )
-    ]);
+    ) {
+
+      selectedNorad = null;
+
+      pathLayer.clearLayers();
+    }
+
+    updateSatellitePositions();
+
+    renderSatelliteList();
+
+    if (details && !selectedNorad) {
+
+      details.textContent =
+        `${satellitesData.length.toLocaleString('fa-IR')} ماهواره از ` +
+        `${successfulGroups.toLocaleString('fa-IR')} گروه دریافت شد.`;
+
+    }
+
+  } catch (error) {
+
+    console.error(
+      'Satellite loading error:',
+      error
+    );
+
+    if (details && !selectedNorad) {
+
+      details.textContent =
+        'خطا در دریافت اطلاعات ماهواره‌ها: ' +
+        error.message;
+
+    }
+
+  } finally {
+
+    satelliteFetchBusy = false;
+
+  }
+}
+
+// =========================================================
+// 11. محاسبه موقعیت ماهواره
+// =========================================================
+
+function getSatellitePosition(sat, date) {
+
+  const result = satellite.propagate(
+    sat.satrec,
+    date
+  );
+
+  if (
+    !result ||
+    !result.position ||
+    typeof result.position === 'boolean'
+  ) {
+    return null;
   }
 
-  /* -------------------- جست‌وجوی STAC -------------------- */
+  const gmst = satellite.gstime(date);
 
-  function daysAgoISO(days) {
-    return new Date(
-      Date.now() - days * 86400000
-    ).toISOString();
+  const geo = satellite.eciToGeodetic(
+    result.position,
+    gmst
+  );
+
+  const lat = satellite.degreesLat(
+    geo.latitude
+  );
+
+  const lon = satellite.degreesLong(
+    geo.longitude
+  );
+
+  if (
+    !finite(lat) ||
+    !finite(lon) ||
+    !finite(geo.height)
+  ) {
+    return null;
   }
 
-  async function searchStac(
-    collection,
+  const v = result.velocity;
+
+  const speed =
+    v && typeof v !== 'boolean'
+      ? Math.sqrt(
+          v.x ** 2 +
+          v.y ** 2 +
+          v.z ** 2
+        )
+      : 0;
+
+  return {
     lat,
     lon,
-    days,
-    cloudLimit
-  ) {
-    const request = timeoutSignal(REQUEST_TIMEOUT_MS);
+    altitude: geo.height,
+    speed
+  };
+}
+
+// =========================================================
+// 12. به‌روزرسانی موقعیت ماهواره‌ها
+// =========================================================
+
+function updateSatellitePositions() {
+
+  if (!satellitesData.length || destroyed) return;
+
+  const now = new Date();
+
+  satellitesData.forEach(sat => {
 
     try {
-      const response = await fetch(STAC_URL, {
-        method: 'POST',
 
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/geo+json, application/json'
-        },
+      const position = getSatellitePosition(
+        sat,
+        now
+      );
 
-        signal: request.controller.signal,
-
-        body: JSON.stringify({
-          collections: [collection],
-
-          intersects: {
-            type: 'Point',
-            coordinates: [lon, lat]
-          },
-
-          datetime:
-            `${daysAgoISO(days)}/${new Date().toISOString()}`,
-
-          limit: 40,
-
-          query: {
-            'eo:cloud_cover': {
-              lte: cloudLimit
-            }
-          },
-
-          sortby: [
-            {
-              field: 'properties.datetime',
-              direction: 'desc'
-            }
-          ]
-        })
-      });
-
-      if (!response.ok) {
-        throw new Error(
-          `جست‌وجوی ${collection} با خطای HTTP ${response.status} روبه‌رو شد.`
-        );
+      if (position) {
+        Object.assign(sat, position);
       }
-
-      const data = await response.json();
-
-      return Array.isArray(data.features)
-        ? data.features
-        : [];
 
     } catch (error) {
-      if (error.name === 'AbortError') {
-        throw new Error('مهلت دریافت فهرست تصاویر تمام شد.');
-      }
 
-      throw error;
+      console.warn(
+        'Position calculation error:',
+        sat.name,
+        error
+      );
 
-    } finally {
-      request.clear();
-    }
-  }
-
-  function getAsset(item, candidates) {
-    const assets = item && item.assets
-      ? item.assets
-      : {};
-
-    for (const candidate of candidates) {
-      if (assets[candidate] && assets[candidate].href) {
-        return {
-          key: candidate,
-          asset: assets[candidate]
-        };
-      }
     }
 
-    const key = Object.keys(assets).find(k =>
-      candidates.some(candidate =>
-        k.toLowerCase() === candidate.toLowerCase()
+  });
+
+  updateMarkers();
+
+  updateSelectedSatellite();
+}
+
+// =========================================================
+// 13. نشانگرهای ماهواره
+// =========================================================
+
+function updateMarkers() {
+
+  satellitesData.forEach(sat => {
+
+    if (
+      !finite(sat.lat) ||
+      !finite(sat.lon)
+    ) {
+      return;
+    }
+
+    let marker = markerMap.get(sat.norad);
+
+    if (!marker) {
+
+      marker = L.circleMarker(
+        [sat.lat, sat.lon],
+        {
+          radius: 5.5,
+          color: '#b8f6ff',
+          fillColor: '#00a9ff',
+          fillOpacity: 0.94,
+          weight: 1.7
+        }
+      );
+
+      marker.on('click', () => {
+        showSatelliteInfo(sat.norad);
+      });
+
+      marker.addTo(markers);
+
+      markerMap.set(
+        sat.norad,
+        marker
+      );
+
+    } else {
+
+      marker.setLatLng([
+        sat.lat,
+        sat.lon
+      ]);
+
+    }
+
+    marker.bindPopup(`
+      <div class="satellite-popup">
+        <b>${escapeHTML(sat.name)}</b><br>
+        NORAD: ${escapeHTML(sat.norad)}<br>
+        ارتفاع: ${sat.altitude.toFixed(1)} کیلومتر
+      </div>
+    `);
+
+  });
+
+  for (const [id, marker] of markerMap) {
+
+    if (
+      !satellitesData.some(
+        s => s.norad === id
       )
-    );
+    ) {
 
-    return key
-      ? { key, asset: assets[key] }
-      : null;
+      markers.removeLayer(marker);
+
+      markerMap.delete(id);
+    }
+
   }
+}
 
-  function itemDate(item) {
-    const value =
-      item &&
-      item.properties &&
-      item.properties.datetime;
+// =========================================================
+// 14. رسم مسیر مداری
+// =========================================================
 
-    if (!value) return 'نامشخص';
+function drawSatellitePath(norad) {
 
-    const date = new Date(value);
+  pathLayer.clearLayers();
 
-    return Number.isNaN(date.getTime())
-      ? 'نامشخص'
-      : date.toLocaleDateString('fa-IR');
-  }
+  const sat = satellitesData.find(
+    s => s.norad === String(norad)
+  );
 
-  function itemCloud(item) {
-    const value = Number(
-      item &&
-      item.properties &&
-      item.properties['eo:cloud_cover']
-    );
+  if (!sat) return;
 
-    return Number.isFinite(value)
-      ? value
-      : null;
-  }
+  let segment = [];
 
-  /* -------------------- خواندن پیکسل از COG -------------------- */
+  const segments = [];
 
-  function getEpsg(image, item, asset) {
-    const assetEpsg = asset && asset['proj:epsg'];
+  const start = Date.now();
 
-    const itemEpsg =
-      item &&
-      item.properties &&
-      item.properties['proj:epsg'];
-
-    const epsg = Number(assetEpsg || itemEpsg || 0);
-
-    if (epsg) return epsg;
-
-    const keys = image.getGeoKeys
-      ? image.getGeoKeys()
-      : {};
-
-    return Number(
-      keys.ProjectedCSTypeGeoKey ||
-      keys.GeographicTypeGeoKey ||
-      0
-    );
-  }
-
-  async function readRawPixel(
-    item,
-    assetInfo,
-    lat,
-    lon
+  for (
+    let t = 0;
+    t <= CONFIG.pathMinutes * 60000;
+    t += CONFIG.pathStepMs
   ) {
-    if (
-      !assetInfo ||
-      !assetInfo.asset ||
-      !assetInfo.asset.href
-    ) {
-      throw new Error(
-        'باند موردنیاز در تصویر موجود نیست.'
+
+    try {
+
+      const p = getSatellitePosition(
+        sat,
+        new Date(start + t)
       );
-    }
 
-    const tiff = await window.GeoTIFF.fromUrl(
-      assetInfo.asset.href,
-      { cache: true }
-    );
+      if (!p) continue;
 
-    const image = await tiff.getImage();
+      if (
+        segment.length &&
+        Math.abs(
+          p.lon -
+          segment[segment.length - 1][1]
+        ) > 180
+      ) {
 
-    const epsg = getEpsg(
-      image,
-      item,
-      assetInfo.asset
-    );
+        if (segment.length > 1) {
+          segments.push(segment);
+        }
 
-    if (!epsg) {
-      throw new Error(
-        'سیستم مختصات تصویر قابل شناسایی نیست.'
+        segment = [];
+      }
+
+      segment.push([
+        p.lat,
+        p.lon
+      ]);
+
+    } catch (error) {
+
+      console.warn(
+        'Orbit path error:',
+        error
       );
+
     }
 
-    const projected = window.proj4(
-      'EPSG:4326',
-      `EPSG:${epsg}`,
-      [lon, lat]
-    );
+  }
 
-    const bounds = image.getBoundingBox();
+  if (segment.length > 1) {
+    segments.push(segment);
+  }
 
-    const width = image.getWidth();
-    const height = image.getHeight();
+  segments.forEach(points => {
 
-    const [minX, minY, maxX, maxY] = bounds;
+    L.polyline(
+      points,
+      {
+        color: '#ffd34e',
+        weight: 3,
+        opacity: 0.9,
+        dashArray: '8,7',
+        lineCap: 'round'
+      }
+    ).addTo(pathLayer);
 
-    if (
-      !Number.isFinite(projected[0]) ||
-      !Number.isFinite(projected[1]) ||
-      projected[0] < minX ||
-      projected[0] >= maxX ||
-      projected[1] <= minY ||
-      projected[1] > maxY
-    ) {
-      throw new Error(
-        'نقطه انتخابی خارج از محدوده این تصویر است.'
-      );
-    }
+  });
 
-    const pixelWidth = (maxX - minX) / width;
-    const pixelHeight = (maxY - minY) / height;
+  pathLayer.bringToFront();
+}
 
-    if (
-      !(pixelWidth > 0) ||
-      !(pixelHeight > 0)
-    ) {
-      throw new Error('ابعاد تصویر معتبر نیست.');
-    }
+// =========================================================
+// 15. انتخاب ماهواره
+// =========================================================
 
-    const px = Math.max(
-      0,
-      Math.min(
-        width - 1,
-        Math.floor(
-          (projected[0] - minX) / pixelWidth
-        )
-      )
-    );
+function showSatelliteInfo(norad) {
 
-    const py = Math.max(
-      0,
-      Math.min(
-        height - 1,
-        Math.floor(
-          (maxY - projected[1]) / pixelHeight
-        )
-      )
-    );
+  const sat = satellitesData.find(
+    s => s.norad === String(norad)
+  );
 
-    const raster = await image.readRasters({
-      window: [
-        px,
-        py,
-        px + 1,
-        py + 1
-      ],
-      samples: [0],
-      interleave: true
+  if (!sat) return;
+
+  selectedNorad = sat.norad;
+
+  drawSatellitePath(sat.norad);
+
+  showTab('info');
+
+  updateSelectedSatellite();
+}
+
+window.showSatelliteInfo = showSatelliteInfo;
+
+// =========================================================
+// 16. نمایش اطلاعات ماهواره
+// =========================================================
+
+function updateSelectedSatellite() {
+
+  if (!selectedNorad) return;
+
+  const sat = satellitesData.find(
+    s => s.norad === selectedNorad
+  );
+
+  const details = byId('details');
+
+  if (!sat || !details) return;
+
+  details.innerHTML = `
+    <div class="satellite-info-card" dir="rtl">
+
+      <h3>🛰️ ${escapeHTML(sat.name)}</h3>
+
+      <p>شناسه NORAD: ${escapeHTML(sat.norad)}</p>
+
+      <p>گروه: ${escapeHTML(sat.group)}</p>
+
+      <p>
+        عرض جغرافیایی:
+        ${sat.lat.toFixed(5)} درجه
+      </p>
+
+      <p>
+        طول جغرافیایی:
+        ${sat.lon.toFixed(5)} درجه
+      </p>
+
+      <p>
+        ارتفاع:
+        ${sat.altitude.toFixed(2)} کیلومتر
+      </p>
+
+      <p>
+        سرعت:
+        ${sat.speed.toFixed(3)} کیلومتر بر ثانیه
+      </p>
+
+      <p>
+        آخرین محاسبه:
+        ${formatLocalTime(new Date(), false)}
+      </p>
+
+      <button
+        type="button"
+        onclick="predictSatellitePass('${escapeHTML(sat.norad)}')"
+        style="
+          width:100%;
+          padding:13px;
+          margin-top:10px;
+          border:0;
+          border-radius:10px;
+          background:linear-gradient(90deg,#087cf0,#00a9c7);
+          color:white;
+          font-size:15px;
+          font-weight:bold
+        ">
+        🔭 پیش‌بینی زمان عبور ماهواره
+      </button>
+
+    </div>
+  `;
+
+  renderSatelliteCommunication();
+}
+
+// =========================================================
+// 17. فهرست ماهواره‌ها
+// =========================================================
+
+function renderSatelliteList() {
+
+  const list = byId('satelliteList');
+
+  if (!list) return;
+
+  const fragment = document.createDocumentFragment();
+
+  list.replaceChildren();
+
+  satellitesData.forEach(sat => {
+
+    const button = document.createElement('button');
+
+    button.type = 'button';
+
+    button.className = 'satellite-list-button';
+
+    button.textContent =
+      `${sat.name} | NORAD ${sat.norad}`;
+
+    button.addEventListener('click', () => {
+
+      if (
+        finite(sat.lat) &&
+        finite(sat.lon)
+      ) {
+
+        map.setView(
+          [sat.lat, sat.lon],
+          5
+        );
+
+      }
+
+      showSatelliteInfo(sat.norad);
+
     });
 
-    const raw = Number(raster[0]);
+    fragment.appendChild(button);
 
-    const bandMeta =
-      Array.isArray(assetInfo.asset['raster:bands'])
-        ? (assetInfo.asset['raster:bands'][0] || {})
-        : {};
+  });
 
-    const nodata = bandMeta.nodata;
+  list.appendChild(fragment);
+}
 
-    if (
-      !Number.isFinite(raw) ||
-      (
-        nodata !== undefined &&
-        raw === Number(nodata)
-      ) ||
-      raw === -9999 ||
-      raw === -32768
-    ) {
-      throw new Error(
-        'پیکسل انتخابی فاقد داده معتبر است.'
-      );
-    }
+// =========================================================
+// 18. دریافت موقعیت GPS
+// =========================================================
 
-    return {
-      raw,
+function getLocation() {
 
-      scale:
-        bandMeta.scale !== undefined &&
-        bandMeta.scale !== null &&
-        Number.isFinite(Number(bandMeta.scale))
-          ? Number(bandMeta.scale)
-          : null,
+  const output = byId('location');
 
-      offset:
-        bandMeta.offset !== undefined &&
-        bandMeta.offset !== null &&
-        Number.isFinite(Number(bandMeta.offset))
-          ? Number(bandMeta.offset)
-          : null,
+  if (!output) return;
 
-      nodata,
+  if (!navigator.geolocation) {
 
-      key: assetInfo.key,
+    output.textContent =
+      'GPS در این مرورگر پشتیبانی نمی‌شود.';
 
-      resolution: Number(
-        bandMeta.spatial_resolution ||
-        assetInfo.asset.gsd ||
-        0
-      ) || null
-    };
+    return;
   }
 
-  function applyScaleOffset(
-    sample,
-    fallbackScale,
-    fallbackOffset
-  ) {
-    const scale =
-      sample.scale !== null
-        ? sample.scale
-        : fallbackScale;
+  output.textContent =
+    'در حال دریافت موقعیت GPS...';
 
-    const offset =
-      sample.offset !== null
-        ? sample.offset
-        : fallbackOffset;
+  navigator.geolocation.getCurrentPosition(
 
-    if (
-      !Number.isFinite(scale) ||
-      !Number.isFinite(offset)
-    ) {
-      throw new Error(
-        'ضریب تبدیل باند مشخص نیست؛ برای جلوگیری از عددسازی، نتیجه نمایش داده نشد.'
-      );
-    }
+    position => {
 
-    return sample.raw * scale + offset;
-  }
+      const lat = position.coords.latitude;
+      const lon = position.coords.longitude;
 
-  function normalizedDifference(a, b) {
-    const sum = a + b;
-
-    return (
-      Number.isFinite(sum) &&
-      Math.abs(sum) > 1e-9
-    )
-      ? (a - b) / sum
-      : null;
-  }
-
-  function ratio(a, b) {
-    return (
-      Number.isFinite(a) &&
-      Number.isFinite(b) &&
-      Math.abs(b) > 1e-9
-    )
-      ? a / b
-      : null;
-  }
-
-  /* -------------------- کنترل کیفیت Sentinel-2 -------------------- */
-
-  async function readSentinelScene(
-    item,
-    lat,
-    lon
-  ) {
-    const assets = {
-      blue: getAsset(item, ['blue', 'B02']),
-      green: getAsset(item, ['green', 'B03']),
-      red: getAsset(item, ['red', 'B04']),
-      nir: getAsset(item, ['nir', 'B08']),
-      swir16: getAsset(item, ['swir16', 'B11']),
-      swir22: getAsset(item, ['swir22', 'B12']),
-      scl: getAsset(item, ['scl', 'SCL'])
-    };
-
-    const required = [
-      'blue',
-      'red',
-      'nir',
-      'swir16',
-      'swir22',
-      'scl'
-    ];
-
-    const missing = required.filter(
-      name => !assets[name]
-    );
-
-    if (missing.length) {
-      throw new Error(
-        `باندهای لازم موجود نیستند: ${missing.join(', ')}`
-      );
-    }
-
-    const names = [
-      'blue',
-      'red',
-      'nir',
-      'swir16',
-      'swir22',
-      'scl'
-    ];
-
-    const samples = {};
-
-    for (const name of names) {
-      samples[name] = await readRawPixel(
-        item,
-        assets[name],
+      userLocation = {
         lat,
-        lon
-      );
-    }
-
-    const scl = Math.round(samples.scl.raw);
-
-    // Sentinel-2 SCL:
-    // 0 بدون داده
-    // 1 پیکسل اشباع/معیوب
-    // 3 سایه ابر
-    // 8 ابر متوسط
-    // 9 ابر زیاد
-    // 10 سیروس
-    // 11 برف/یخ
-
-    const invalidScl = new Set([
-      0, 1, 3, 8, 9, 10, 11
-    ]);
-
-    if (invalidScl.has(scl)) {
-      const labels = {
-        0: 'بدون داده',
-        1: 'پیکسل اشباع یا معیوب',
-        3: 'سایه ابر',
-        8: 'ابر با احتمال متوسط',
-        9: 'ابر با احتمال زیاد',
-        10: 'ابر سیروس',
-        11: 'برف یا یخ'
+        lon,
+        altitude: finite(position.coords.altitude)
+          ? position.coords.altitude
+          : 0
       };
 
-      throw new Error(
-        `پیکسل انتخابی برای تحلیل معتبر نیست: ${
-          labels[scl] || 'کیفیت نامعتبر'
-        }. نقطه دیگری انتخاب کنید.`
-      );
-    }
+      output.innerHTML =
+        `عرض جغرافیایی: ${lat.toFixed(5)}<br>` +
+        `طول جغرافیایی: ${lon.toFixed(5)}`;
 
-    const reflectance = {};
-
-    for (const name of [
-      'blue',
-      'red',
-      'nir',
-      'swir16',
-      'swir22'
-    ]) {
-      // Collection 1:
-      // استفاده از scale و offset خود متادیتای باند.
-      // در نبود متادیتا، مقیاس 0.0001 و آفست صفر.
-      reflectance[name] = applyScaleOffset(
-        samples[name],
-        0.0001,
-        0
-      );
-
-      if (
-        !Number.isFinite(reflectance[name]) ||
-        reflectance[name] < -0.15 ||
-        reflectance[name] > 1.6
-      ) {
-        throw new Error(
-          `بازتاب باند ${name} خارج از محدوده قابل قبول است؛ احتمال ناسازگاری متادیتا وجود دارد.`
-        );
+      if (userMarker) {
+        map.removeLayer(userMarker);
       }
+
+      userMarker = L.marker([
+        lat,
+        lon
+      ])
+        .addTo(map)
+        .bindPopup('موقعیت فعلی شما')
+        .openPopup();
+
+      map.setView(
+        [lat, lon],
+        7
+      );
+
+      showTab('map');
+
+      fetchAircraft();
+
+    },
+
+    error => {
+
+      output.textContent =
+        error.code === 1
+          ? 'اجازه دسترسی به GPS داده نشد.'
+          : error.code === 3
+            ? 'زمان دریافت GPS تمام شد؛ دوباره تلاش کنید.'
+            : 'دریافت موقعیت ناموفق بود.';
+
+    },
+
+    {
+      enableHighAccuracy: true,
+      timeout: 25000,
+      maximumAge: 0
     }
 
-    return {
-      reflectance,
-      scl,
-      samples
-    };
+  );
+}
+
+window.getLocation = getLocation;
+
+// =========================================================
+// 19. پنل پیش‌بینی عبور
+// =========================================================
+
+function getPassPanel() {
+
+  let panel = byId('passDetails');
+
+  if (!panel) {
+
+    panel = document.createElement('section');
+
+    panel.id = 'passDetails';
+
+    panel.dir = 'rtl';
+
+    panel.className = 'satellite-info-card';
+
+    const infoTab = byId('infoTab');
+
+    (infoTab || document.body).appendChild(panel);
   }
 
-  function surfaceDescription(
-    ndvi,
-    bsi,
-    ndmi
+  return panel;
+}
+
+// =========================================================
+// 20. محاسبه زاویه دید ماهواره
+// =========================================================
+
+function calculateLook(sat, timestamp) {
+
+  if (!userLocation) return null;
+
+  const date = new Date(timestamp);
+
+  const result = satellite.propagate(
+    sat.satrec,
+    date
+  );
+
+  if (
+    !result ||
+    !result.position ||
+    typeof result.position === 'boolean'
   ) {
-    if (
-      ndvi !== null &&
-      ndvi < -0.1 &&
-      ndmi !== null &&
-      ndmi > 0.1
-    ) {
-      return 'احتمال آب یا سطح بسیار مرطوب';
-    }
-
-    if (ndvi !== null && ndvi >= 0.4) {
-      return 'پوشش گیاهی متراکم یا فعال';
-    }
-
-    if (ndvi !== null && ndvi >= 0.2) {
-      return 'پوشش گیاهی متوسط';
-    }
-
-    if (
-      bsi !== null &&
-      bsi > 0.15 &&
-      (ndvi === null || ndvi < 0.2)
-    ) {
-      return 'سطح کم‌پوشش یا خاک برهنه محتمل است';
-    }
-
-    return 'سطح مختلط؛ برای تعیین نوع خاک به داده تکمیلی نیاز است';
+    return null;
   }
 
-  async function analyzeMinerals() {
-    if (!selectedPoint || mineralBusy) return;
+  const observer = {
 
-    mineralBusy = true;
+    longitude:
+      userLocation.lon * Math.PI / 180,
 
-    const button = $('earthAnalyzeButton');
+    latitude:
+      userLocation.lat * Math.PI / 180,
 
-    if (button) button.disabled = true;
+    height:
+      (userLocation.altitude || 0) / 1000
 
-    setText(
-      'earthMineralOutput',
-      'در حال دریافت و کنترل کیفیت تصویر Sentinel-2...'
+  };
+
+  const gmst = satellite.gstime(date);
+
+  const ecf = satellite.eciToEcf(
+    result.position,
+    gmst
+  );
+
+  const look = satellite.ecfToLookAngles(
+    observer,
+    ecf
+  );
+
+  const elevation =
+    look.elevation * 180 / Math.PI;
+
+  const azimuth =
+    (look.azimuth * 180 / Math.PI + 360) % 360;
+
+  const range = look.rangeSat;
+
+  if (
+    ![
+      elevation,
+      azimuth,
+      range
+    ].every(Number.isFinite)
+  ) {
+    return null;
+  }
+
+  return {
+    elevation,
+    azimuth,
+    range
+  };
+}
+
+// =========================================================
+// 21. دقیق‌سازی مرز عبور
+// =========================================================
+
+function refinePassBoundary(sat, left, right) {
+
+  let low = left;
+  let high = right;
+
+  const first = calculateLook(sat, low);
+
+  if (!first) {
+    return new Date(high);
+  }
+
+  const initiallyVisible =
+    first.elevation >= 0;
+
+  for (
+    let i = 0;
+    i < CONFIG.passBoundaryIterations;
+    i++
+  ) {
+
+    const mid = (low + high) / 2;
+
+    const look = calculateLook(
+      sat,
+      mid
     );
 
-    try {
-      await ensureRasterLibraries();
+    if (!look) break;
 
-      const items = await searchStac(
-        'sentinel-2-c1-l2a',
-        selectedPoint.lat,
-        selectedPoint.lon,
-        730,
-        80
-      );
-
-      if (!items.length) {
-        throw new Error(
-          'در دو سال اخیر تصویر Sentinel-2 برای این نقطه پیدا نشد.'
-        );
-      }
-
-      const ranked = items.slice().sort((a, b) => {
-        const ca = itemCloud(a);
-        const cb = itemCloud(b);
-
-        return (
-          (ca === null ? 100 : ca) -
-          (cb === null ? 100 : cb)
-        );
-      });
-
-      let chosen = null;
-      let scene = null;
-      let lastError = null;
-
-      for (const item of ranked.slice(0, 12)) {
-        try {
-          const result = await readSentinelScene(
-            item,
-            selectedPoint.lat,
-            selectedPoint.lon
-          );
-
-          chosen = item;
-          scene = result;
-          break;
-
-        } catch (error) {
-          lastError = error;
-        }
-      }
-
-      if (!chosen || !scene) {
-        throw new Error(
-          lastError
-            ? lastError.message
-            : 'هیچ پیکسل معتبر و بدون ابر پیدا نشد.'
-        );
-      }
-
-      const r = scene.reflectance;
-
-      const ndvi = normalizedDifference(
-        r.nir,
-        r.red
-      );
-
-      const ndmi = normalizedDifference(
-        r.nir,
-        r.swir16
-      );
-
-      const bsiDenominator =
-        r.swir16 +
-        r.red +
-        r.nir +
-        r.blue;
-
-      const bsi =
-        Math.abs(bsiDenominator) > 1e-9
-          ? (
-              (r.swir16 + r.red) -
-              (r.nir + r.blue)
-            ) / bsiDenominator
-          : null;
-
-      // نسبت‌های کمکی اکتشافی؛ تشخیص قطعی کانی نیستند.
-      const ferricProxy = ratio(
-        r.red,
-        r.blue
-      );
-
-      const clayProxy = ratio(
-        r.swir16,
-        r.swir22
-      );
-
-      const cloud = itemCloud(chosen);
-      const date = itemDate(chosen);
-
-      const description = surfaceDescription(
-        ndvi,
-        bsi,
-        ndmi
-      );
-
-      const qualityText =
-        cloud === null
-          ? 'ابر صحنه نامشخص؛ کیفیت باید با احتیاط تفسیر شود.'
-          : cloud <= 20
-            ? 'پوشش ابر کلی صحنه کم است؛ پیکسل انتخابی نیز از نظر SCL کنترل شد.'
-            : 'پوشش ابر کلی صحنه نسبتاً زیاد است؛ پیکسل انتخابی از نظر SCL معتبر بوده است.';
-
-      setHTML('earthMineralOutput', `
-        <b>🔬 تحلیل طیفی Sentinel-2 Collection 1</b><br>
-
-        <span class="earth-ok">
-          ✓ پیکسل از کنترل کیفیت SCL عبور کرد
-        </span><br>
-
-        تاریخ تصویر: ${safe(date)}<br>
-
-        پوشش ابر کل صحنه:
-        ${cloud === null ? 'نامشخص' : cloud.toFixed(1) + '%'}<br>
-
-        وضوح باندها:
-        قرمز/آبی/NIR حدود 10 متر؛ SWIR حدود 20 متر<br>
-
-        طبقه‌بندی کلی:
-        <b>${safe(description)}</b><br>
-
-        NDVI پوشش گیاهی:
-        ${formatNumber(ndvi)}<br>
-
-        NDMI رطوبت نسبی پوشش/سطح:
-        ${formatNumber(ndmi)}<br>
-
-        BSI خاک برهنه:
-        ${formatNumber(bsi)}<br>
-
-        نسبت قرمز/آبی (شاخص کمکی اکسید آهن):
-        ${formatNumber(ferricProxy)}<br>
-
-        نسبت SWIR1/SWIR2 (شاخص کمکی رس/کانی):
-        ${formatNumber(clayProxy)}<br>
-
-        کلاس SCL: ${scene.scl}<br>
-
-        <span class="earth-muted">
-          ${safe(qualityText)}
-        </span><br>
-
-        <span class="earth-warn">
-          تفسیر زمین‌شناسی قطعی نیست: نسبت‌ها به سنگ‌شناسی،
-          خاک، رطوبت، زاویه تابش و شرایط جوی وابسته‌اند
-          و برای اثبات ذخیره معدنی کافی نیستند.
-        </span><br>
-
-        <span class="earth-muted">
-          شناسه تصویر: ${safe(chosen.id)}
-        </span>
-      `);
-
-    } catch (error) {
-      console.error('Sentinel analysis error:', error);
-
-      setText(
-        'earthMineralOutput',
-        'تحلیل معتبر انجام نشد: ' + error.message
-      );
-
-    } finally {
-      mineralBusy = false;
-
-      if (button) {
-        button.disabled = !selectedPoint;
-      }
+    if (
+      (look.elevation >= 0) === initiallyVisible
+    ) {
+      low = mid;
+    } else {
+      high = mid;
     }
+
   }
 
-  /* -------------------- کنترل کیفیت Landsat -------------------- */
+  return new Date((low + high) / 2);
+}
 
-  function landsatQaIsBad(qa) {
-    const value = Math.round(qa);
+// =========================================================
+// 22. پیش‌بینی عبور در ۲۴ ساعت آینده
+// =========================================================
 
-    // QA_PIXEL bits 0-5:
-    // fill, dilated cloud, cirrus, cloud, cloud shadow, snow.
-    return (value & 0b111111) !== 0;
+function predictSatellitePass(norad) {
+
+  const panel = getPassPanel();
+
+  if (!userLocation) {
+
+    panel.textContent =
+      'ابتدا موقعیت GPS گوشی را دریافت کنید.';
+
+    return;
   }
 
-  async function analyzeThermal() {
-    if (!selectedPoint || thermalBusy) return;
+  if (passSearchBusy) return;
 
-    thermalBusy = true;
+  const sat = satellitesData.find(
+    s => s.norad === String(norad)
+  );
 
-    const button = $('earthThermalButton');
+  if (!sat || !sat.satrec) {
 
-    if (button) button.disabled = true;
+    panel.textContent =
+      'اطلاعات مداری ماهواره یافت نشد.';
 
-    setText(
-      'earthThermalOutput',
-      'در حال دریافت باند دمای سطح و کنترل کیفیت Landsat...'
-    );
+    return;
+  }
+
+  passSearchBusy = true;
+
+  panel.textContent =
+    'در حال محاسبه عبورهای ۲۴ ساعت آینده...';
+
+  setTimeout(() => {
 
     try {
-      await ensureRasterLibraries();
 
-      const items = await searchStac(
-        'landsat-c2-l2',
-        selectedPoint.lat,
-        selectedPoint.lon,
-        730,
-        80
+      const now = Date.now();
+
+      const duration =
+        CONFIG.passSearchHours * 60 * 60 * 1000;
+
+      const step = CONFIG.passStepMs;
+
+      const passes = [];
+
+      let previousTime = now;
+
+      let previousLook = calculateLook(
+        sat,
+        now
       );
 
-      if (!items.length) {
-        throw new Error(
-          'تصویر Landsat Collection 2 در دو سال اخیر پیدا نشد.'
-        );
-      }
+      let currentPass = null;
 
-      let chosen = null;
-      let thermal = null;
-      let qaSample = null;
-      let stQaSample = null;
-      let lastError = null;
-
-      const ranked = items.slice().sort((a, b) => {
-        const ca = itemCloud(a);
-        const cb = itemCloud(b);
-
-        return (
-          (ca === null ? 100 : ca) -
-          (cb === null ? 100 : cb)
-        );
-      });
-
-      for (const item of ranked.slice(0, 15)) {
-        try {
-          const thermalAsset = getAsset(
-            item,
-            [
-              'lwir11',
-              'ST_B10',
-              'st',
-              'surface_temperature'
-            ]
-          );
-
-          if (!thermalAsset) continue;
-
-          const sample = await readRawPixel(
-            item,
-            thermalAsset,
-            selectedPoint.lat,
-            selectedPoint.lon
-          );
-
-          // در Landsat Collection 2 مقدار صفر fill/no-data است.
-          if (sample.raw === 0) {
-            throw new Error(
-              'پیکسل دمایی مقدار fill برابر صفر دارد.'
-            );
-          }
-
-          const qaAsset = getAsset(
-            item,
-            ['qa_pixel', 'QA_PIXEL']
-          );
-
-          let qa = null;
-
-          if (qaAsset) {
-            qa = await readRawPixel(
-              item,
-              qaAsset,
-              selectedPoint.lat,
-              selectedPoint.lon
-            );
-
-            if (landsatQaIsBad(qa.raw)) {
-              throw new Error(
-                'پیکسل Landsat طبق QA_PIXEL دارای ابر، سایه، برف یا داده نامعتبر است.'
-              );
-            }
-          }
-
-          const stQaAsset = getAsset(
-            item,
-            ['st_qa', 'ST_QA']
-          );
-
-          let stQa = null;
-
-          if (stQaAsset) {
-            stQa = await readRawPixel(
-              item,
-              stQaAsset,
-              selectedPoint.lat,
-              selectedPoint.lon
-            );
-          }
-
-          chosen = item;
-          thermal = sample;
-          qaSample = qa;
-          stQaSample = stQa;
-
-          break;
-
-        } catch (error) {
-          lastError = error;
-        }
-      }
-
-      if (!chosen || !thermal) {
-        throw new Error(
-          lastError
-            ? lastError.message
-            : 'پیکسل حرارتی معتبر در تصاویر پیدا نشد.'
-        );
-      }
-
-      // Landsat Collection 2:
-      // Kelvin = DN * 0.00341802 + 149
-      const tempKelvin = applyScaleOffset(
-        thermal,
-        0.00341802,
-        149.0
-      );
-
-      const tempCelsius = tempKelvin - 273.15;
-
+      // ثبت عبوری که هنگام شروع محاسبه در جریان است
       if (
-        !Number.isFinite(tempCelsius) ||
-        tempKelvin < 180 ||
-        tempKelvin > 400 ||
-        tempCelsius < -93.15 ||
-        tempCelsius > 126.85
+        previousLook &&
+        previousLook.elevation >= 0
       ) {
-        throw new Error(
-          'دمای محاسبه‌شده خارج از محدوده فیزیکی معتبر است؛ نتیجه رد شد.'
-        );
+
+        currentPass = {
+
+          start: null,
+
+          ongoingAtStart: true,
+
+          peak: previousLook.elevation,
+
+          peakTime: new Date(now),
+
+          maxAzimuth: previousLook.azimuth,
+
+          minRange: previousLook.range,
+
+          end: null
+
+        };
       }
 
-      let uncertainty = null;
+      for (
+        let t = step;
+        t <= duration;
+        t += step
+      ) {
 
-      if (stQaSample) {
-        // ST_QA معمولاً با ضریب 0.01 کلوین ذخیره می‌شود.
-        uncertainty = applyScaleOffset(
-          stQaSample,
-          0.01,
-          0
+        const timestamp = now + t;
+
+        const look = calculateLook(
+          sat,
+          timestamp
         );
+
+        if (!look) {
+
+          previousTime = timestamp;
+          previousLook = null;
+
+          continue;
+        }
+
+        const visible =
+          look.elevation >= 0;
+
+        const wasVisible =
+          previousLook !== null &&
+          previousLook.elevation >= 0;
 
         if (
-          !Number.isFinite(uncertainty) ||
-          uncertainty < 0 ||
-          uncertainty > 20
+          visible &&
+          !wasVisible &&
+          !currentPass
         ) {
-          uncertainty = null;
+
+          currentPass = {
+
+            start: previousLook
+              ? refinePassBoundary(
+                  sat,
+                  previousTime,
+                  timestamp
+                )
+              : new Date(timestamp),
+
+            ongoingAtStart: false,
+
+            peak: look.elevation,
+
+            peakTime: new Date(timestamp),
+
+            maxAzimuth: look.azimuth,
+
+            minRange: look.range,
+
+            end: null
+
+          };
         }
+
+        if (visible && currentPass) {
+
+          if (look.elevation > currentPass.peak) {
+
+            currentPass.peak =
+              look.elevation;
+
+            currentPass.peakTime =
+              new Date(timestamp);
+
+            currentPass.maxAzimuth =
+              look.azimuth;
+          }
+
+          currentPass.minRange = Math.min(
+            currentPass.minRange,
+            look.range
+          );
+        }
+
+        if (
+          !visible &&
+          wasVisible &&
+          currentPass
+        ) {
+
+          currentPass.end =
+            refinePassBoundary(
+              sat,
+              previousTime,
+              timestamp
+            );
+
+          passes.push(currentPass);
+
+          currentPass = null;
+        }
+
+        previousTime = timestamp;
+
+        previousLook = look;
       }
 
-      const cloud = itemCloud(chosen);
-      const date = itemDate(chosen);
+      if (currentPass) {
+        passes.push(currentPass);
+      }
 
-      const qaText = qaSample
-        ? '✓ پیکسل از کنترل QA_PIXEL عبور کرد.'
-        : '⚠️ باند QA_PIXEL در این آیتم در دسترس نبود؛ حذف ابر/سایه به‌طور کامل تأیید نشده است.';
+      const durationText = pass => {
 
-      setHTML('earthThermalOutput', `
-        <b>🌡️ دمای سطح زمین Landsat Collection 2</b><br>
+        if (!pass.start || !pass.end) {
 
-        <span class="earth-ok">
-          ${safe(qaText)}
-        </span><br>
-
-        دمای سطح:
-        <b>${tempCelsius.toFixed(1)} °C</b><br>
-
-        دما بر حسب کلوین:
-        ${tempKelvin.toFixed(1)} K<br>
-
-        تاریخ تصویر:
-        ${safe(date)}<br>
-
-        پوشش ابر کل صحنه:
-        ${cloud === null ? 'نامشخص' : cloud.toFixed(1) + '%'}<br>
-
-        وضوح مکانی معمول:
-        30 متر<br>
-
-        ${
-          uncertainty === null
-            ? ''
-            : `عدم‌قطعیت تقریبی ST_QA: ±${uncertainty.toFixed(1)} K<br>`
+          return pass.ongoingAtStart
+            ? 'عبور از ابتدای محاسبه در جریان بوده است'
+            : 'ادامه عبور پس از پایان بازه بررسی';
         }
 
-        <span class="earth-muted">
-          این مقدار دمای سطح در زمان عبور ماهواره است،
-          نه دمای هوای فعلی و نه دمای لحظه‌ای.
-        </span><br>
+        const seconds = Math.max(
+          0,
+          Math.round(
+            (pass.end - pass.start) / 1000
+          )
+        );
 
-        <span class="earth-muted">
-          شناسه تصویر: ${safe(chosen.id)}
-        </span>
-      `);
+        return (
+          Math.floor(seconds / 60) +
+          ' دقیقه و ' +
+          (seconds % 60) +
+          ' ثانیه'
+        );
+      };
+
+      if (!passes.length) {
+
+        panel.innerHTML = `
+          <h3>🛰️ نتیجه پیش‌بینی</h3>
+
+          <p>ماهواره: ${escapeHTML(sat.name)}</p>
+
+          <p>
+            در ۲۴ ساعت آینده عبور قابل مشاهده‌ای
+            پیش‌بینی نشد.
+          </p>
+        `;
+
+        return;
+      }
+
+      panel.innerHTML = `
+
+        <h3>🛰️ پیش‌بینی عبور ماهواره</h3>
+
+        <p>نام: ${escapeHTML(sat.name)}</p>
+
+        <p>NORAD: ${escapeHTML(sat.norad)}</p>
+
+        <p>
+          تعداد عبورها:
+          ${passes.length.toLocaleString('fa-IR')}
+        </p>
+
+        <hr>
+
+        ${passes.map((p, i) => `
+
+          <div style="
+            background:#153653;
+            padding:13px;
+            margin:12px 0;
+            border-radius:11px;
+            border:1px solid #285477
+          ">
+
+            <h4>عبور شماره ${i + 1}</h4>
+
+            <p>
+              🟢 شروع:
+              ${p.start
+                ? formatLocalTime(p.start)
+                : 'قبل از شروع محاسبه'}
+            </p>
+
+            <p>
+              ⭐ اوج ارتفاع:
+              ${p.peak.toFixed(2)} درجه
+            </p>
+
+            <p>
+              🕒 زمان اوج:
+              ${formatLocalTime(p.peakTime)}
+            </p>
+
+            <p>
+              🧭 جهت در اوج:
+              ${p.maxAzimuth.toFixed(1)} درجه
+            </p>
+
+            <p>
+              📏 نزدیک‌ترین فاصله:
+              ${p.minRange.toFixed(1)} کیلومتر
+            </p>
+
+            <p>
+              🔴 پایان:
+              ${p.end
+                ? formatLocalTime(p.end)
+                : 'ادامه‌دار / خارج از بازه'}
+            </p>
+
+            <p>
+              ⏱️ مدت:
+              ${durationText(p)}
+            </p>
+
+          </div>
+
+        `).join('')}
+
+        <hr>
+
+        <p style="color:#55dfff">
+          زمان‌ها بر اساس ساعت محلی گوشی نمایش داده شده‌اند.
+        </p>
+
+        <p style="color:#ffd166;font-size:12px">
+          پیش‌بینی به دقت و تازگی داده‌های TLE وابسته است
+          و تضمین‌کننده مشاهده واقعی نیست.
+        </p>
+
+      `;
 
     } catch (error) {
-      console.error('Landsat thermal error:', error);
 
-      setText(
-        'earthThermalOutput',
-        'دمای معتبر به دست نیامد: ' + error.message
+      console.error(
+        'Pass prediction error:',
+        error
       );
+
+      panel.textContent =
+        'خطای پیش‌بینی: ' + error.message;
 
     } finally {
-      thermalBusy = false;
 
-      if (button) {
-        button.disabled = !selectedPoint;
-      }
-    }
-  }
+      passSearchBusy = false;
 
-  /* -------------------- انتخاب نقطه روی نقشه -------------------- */
-
-  function selectMapPoint(lat, lon) {
-    if (
-      !Number.isFinite(lat) ||
-      !Number.isFinite(lon)
-    ) return;
-
-    selectedPoint = { lat, lon };
-
-    setText(
-      'earthPointText',
-      `مختصات انتخابی: ${lat.toFixed(6)}, ${lon.toFixed(6)}`
-    );
-
-    const coordinateOutput = $('selectedCoordinates');
-
-    if (coordinateOutput) {
-      coordinateOutput.textContent =
-        `عرض: ${lat.toFixed(6)} | طول: ${lon.toFixed(6)}`;
     }
 
-    if (analysisMarker) {
-      map.removeLayer(analysisMarker);
-    }
+  }, 40);
+}
 
-    analysisMarker = L.circleMarker(
-      [lat, lon],
-      {
-        radius: 8,
-        color: '#ffeb3b',
-        fillColor: '#ff9800',
-        fillOpacity: 0.9,
-        weight: 2
-      }
-    )
-      .addTo(map)
-      .bindPopup(
-        `نقطه تحلیل<br>${lat.toFixed(6)}, ${lon.toFixed(6)}`
-      )
-      .openPopup();
+window.predictSatellitePass =
+  predictSatellitePass;
 
-    $('earthAnalyzeButton').disabled = false;
-    $('earthThermalButton').disabled = false;
+// =========================================================
+// 23. اطلاعات ارتباط ماهواره‌ای
+// =========================================================
 
-    setText(
-      'earthMineralOutput',
-      'نقطه انتخاب شد؛ برای محاسبه شاخص‌های طیفی دکمه تحلیل را بزنید.'
-    );
+function renderSatelliteCommunication() {
 
-    setText(
-      'earthThermalOutput',
-      'نقطه انتخاب شد؛ برای محاسبه دمای سطح دکمه حرارتی را بزنید.'
-    );
-  }
+  const details = byId('details');
 
-  // جلوگیری از ثبت چندباره رویداد کلیک نقشه
-  if (window.__earthAnalysisMapClick) {
-    map.off(
-      'click',
-      window.__earthAnalysisMapClick
-    );
-  }
+  if (!details || !selectedNorad) return;
 
-  window.__earthAnalysisMapClick = event => {
-    selectMapPoint(
-      event.latlng.lat,
-      event.latlng.lng
-    );
-  };
-
-  map.on(
-    'click',
-    window.__earthAnalysisMapClick
+  const sat = satellitesData.find(
+    s => s.norad === selectedNorad
   );
 
-  $('earthAnalyzeButton').addEventListener(
-    'click',
-    analyzeMinerals
-  );
+  if (!sat) return;
 
-  $('earthThermalButton').addEventListener(
-    'click',
-    analyzeThermal
-  );
+  byId('radioPanel')?.remove();
 
-  window.loadMineralData = analyzeMinerals;
-  window.loadThermalData = analyzeThermal;
+  const data = RADIO_DATABASE[sat.norad];
 
-  window.runEarthAnalysis = async () => {
-    if (!selectedPoint) {
-      setText(
-        'earthPointText',
-        'ابتدا روی یک نقطه از نقشه بزنید.'
+  const panel = document.createElement('section');
+
+  panel.id = 'radioPanel';
+
+  panel.dir = 'rtl';
+
+  panel.className = 'satellite-info-card';
+
+  const heading = document.createElement('h3');
+
+  heading.textContent =
+    '📡 اطلاعات ارتباط ماهواره‌ای';
+
+  panel.appendChild(heading);
+
+  const identity = document.createElement('p');
+
+  identity.textContent =
+    `ماهواره: ${sat.name} | شناسه NORAD: ${sat.norad}`;
+
+  panel.appendChild(identity);
+
+  if (!data) {
+
+    const message = document.createElement('p');
+
+    message.textContent =
+      'اطلاعات فرکانسی تأییدشده برای این ماهواره در پایگاه فعلی موجود نیست.';
+
+    panel.appendChild(message);
+
+  } else {
+
+    const status = document.createElement('p');
+
+    status.textContent =
+      'وضعیت اطلاعات: ' + data.status;
+
+    panel.appendChild(status);
+
+    data.modes.forEach(mode => {
+
+      const box = document.createElement('div');
+
+      box.style.cssText =
+        'margin-top:12px;padding:12px;border-radius:10px;background:#183652';
+
+      const title = document.createElement('h4');
+
+      title.textContent = mode.name;
+
+      const up = document.createElement('p');
+
+      up.textContent =
+        'فرکانس ارسال: ' + mode.uplink;
+
+      const down = document.createElement('p');
+
+      down.textContent =
+        'فرکانس دریافت: ' + mode.downlink;
+
+      const protocol = document.createElement('p');
+
+      protocol.textContent =
+        'پروتکل: ' + mode.protocol;
+
+      box.append(
+        title,
+        up,
+        down,
+        protocol
       );
-      return;
-    }
 
-    await analyzeMinerals();
-    await analyzeThermal();
-  };
+      panel.appendChild(box);
+    });
 
-  /* -------------------- دریافت پروازهای منطقه -------------------- */
+    const source = document.createElement('a');
 
-  let aircraftButton = $('aircraftRefreshButton');
+    source.href = data.source;
 
-  if (aircraftButton) {
-    const cleanButton = aircraftButton.cloneNode(true);
+    source.target = '_blank';
 
-    aircraftButton.replaceWith(cleanButton);
+    source.rel = 'noopener noreferrer';
 
-    aircraftButton = cleanButton;
+    source.textContent =
+      'مشاهده منبع اطلاعات';
+
+    source.style.cssText =
+      'display:block;margin-top:12px;color:#55dfff';
+
+    panel.appendChild(source);
   }
 
-  function aircraftDistanceKm(
-    lat1,
-    lon1,
-    lat2,
-    lon2
-  ) {
-    const rad = value => value * Math.PI / 180;
+  const warning = document.createElement('p');
 
-    const dLat = rad(lat2 - lat1);
-    const dLon = rad(lon2 - lon1);
+  warning.style.color = '#ffd166';
 
-    const a =
-      Math.sin(dLat / 2) ** 2 +
-      Math.cos(rad(lat1)) *
-      Math.cos(rad(lat2)) *
-      Math.sin(dLon / 2) ** 2;
+  warning.textContent =
+    'نمایش فرکانس به معنی برقراری ارتباط واقعی نیست. ارسال رادیویی به تجهیزات و مجوز معتبر نیاز دارد.';
 
-    return 6371 * 2 *
-      Math.atan2(
-        Math.sqrt(a),
-        Math.sqrt(1 - a)
-      );
-  }
+  panel.appendChild(warning);
 
-  function aircraftPopup(plane) {
-    return `
-      <div dir="rtl" style="line-height:2">
-        <b>✈️ اطلاعات پرواز</b><br>
+  details.appendChild(panel);
+}
 
-        شناسه:
-        ${safe(plane.icao)}<br>
+// =========================================================
+// 24. محاسبه فاصله هواپیما
+// =========================================================
 
-        پرواز:
-        ${safe(plane.callsign || 'نامشخص')}<br>
+function aircraftDistanceKm(
+  lat1,
+  lon1,
+  lat2,
+  lon2
+) {
 
-        ثبت/نوع:
-        ${safe(plane.registration || plane.type || 'نامشخص')}<br>
+  const R = 6371;
 
-        ارتفاع:
-        ${
-          plane.altitudeKm === null
-            ? 'نامشخص'
-            : plane.altitudeKm.toFixed(2) + ' کیلومتر'
-        }<br>
+  const rad = x => x * Math.PI / 180;
 
-        سرعت:
-        ${
-          plane.speedKmh === null
-            ? 'نامشخص'
-            : plane.speedKmh.toFixed(0) + ' کیلومتر بر ساعت'
-        }<br>
+  const dLat = rad(lat2 - lat1);
 
-        جهت:
-        ${
-          plane.heading === null
-            ? 'نامشخص'
-            : plane.heading.toFixed(0) + ' درجه'
-        }<br>
+  const dLon = rad(lon2 - lon1);
 
-        فاصله از GPS:
-        ${plane.distanceKm.toFixed(1)} کیلومتر
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(rad(lat1)) *
+    Math.cos(rad(lat2)) *
+    Math.sin(dLon / 2) ** 2;
+
+  return 2 * R * Math.atan2(
+    Math.sqrt(a),
+    Math.sqrt(1 - a)
+  );
+}
+
+// =========================================================
+// 25. کنترل پرواز روی نقشه
+// =========================================================
+
+const aircraftControl = L.control({
+  position: 'topright'
+});
+
+aircraftControl.onAdd = function () {
+
+  const box = L.DomUtil.create(
+    'div',
+    'satellite-explorer-control'
+  );
+
+  box.style.cssText +=
+    'padding:11px;min-width:175px;max-width:210px';
+
+  box.innerHTML = `
+
+    <div style="
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:8px
+    ">
+
+      <b>✈️ پروازهای منطقه</b>
+
+      <button
+        id="aircraftCollapse"
+        type="button"
+        aria-label="جمع کردن پنل"
+        style="
+          border:0;
+          border-radius:7px;
+          background:#214766;
+          color:white;
+          padding:2px 8px
+        "
+      >−</button>
+
+    </div>
+
+    <div id="aircraftControlBody">
+
+      <div
+        id="aircraftStatus"
+        style="color:#bfeeff"
+      >
+        منتظر دریافت GPS
       </div>
-    `;
-  }
 
-  async function enhancedFetchAircraft() {
-    if (window.__aircraftLocalBusy) return;
+      <div
+        id="aircraftCount"
+        style="color:#dceeff"
+      ></div>
 
-    const location =
-      (typeof userLocation !== 'undefined')
-        ? userLocation
-        : null;
+      <button
+        id="aircraftRefreshButton"
+        type="button"
+        style="
+          width:100%;
+          padding:9px;
+          margin-top:7px;
+          border:0;
+          border-radius:8px;
+          background:#087cf0;
+          color:white;
+          font-weight:bold
+        "
+      >
+        دریافت پروازها
+      </button>
 
-    if (
-      !location ||
-      !Number.isFinite(location.lat) ||
-      !Number.isFinite(location.lon)
-    ) {
-      setText(
-        'aircraftStatus',
-        'ابتدا GPS گوشی را دریافت کنید.'
+    </div>
+  `;
+
+  L.DomEvent.disableClickPropagation(box);
+
+  L.DomEvent.disableScrollPropagation(box);
+
+  L.DomEvent.on(
+    box.querySelector('#aircraftRefreshButton'),
+    'click',
+    fetchAircraft
+  );
+
+  L.DomEvent.on(
+    box.querySelector('#aircraftCollapse'),
+    'click',
+    () => {
+
+      const body = box.querySelector(
+        '#aircraftControlBody'
       );
-      return;
+
+      const button = box.querySelector(
+        '#aircraftCollapse'
+      );
+
+      body.hidden = !body.hidden;
+
+      button.textContent =
+        body.hidden ? '+' : '−';
+
     }
+  );
 
-    window.__aircraftLocalBusy = true;
+  return box;
+};
 
-    const button = $('aircraftRefreshButton');
+// =========================================================
+// 26. وضعیت پرواز
+// =========================================================
 
-    if (button) button.disabled = true;
+function setAircraftStatus(message) {
 
-    setText(
-      'aircraftStatus',
-      'در حال دریافت پروازهای اطراف GPS...'
+  setText(
+    'aircraftStatus',
+    message
+  );
+}
+
+// =========================================================
+// 27. آیکون هواپیما
+// =========================================================
+
+function createAircraftIcon(heading) {
+
+  const direction = finite(heading)
+    ? heading
+    : 0;
+
+  return L.divIcon({
+
+    className: 'aircraft-icon',
+
+    html: `
+      <div style="
+        font-size:25px;
+        width:32px;
+        height:32px;
+        display:flex;
+        align-items:center;
+        justify-content:center;
+        transform:rotate(${direction}deg);
+        filter:drop-shadow(1px 2px 2px #000)
+      ">✈️</div>
+    `,
+
+    iconSize: [32, 32],
+
+    iconAnchor: [16, 16]
+
+  });
+}
+
+// =========================================================
+// 28. اطلاعات پنجره هواپیما
+// =========================================================
+
+function aircraftPopup(plane) {
+
+  const altitude =
+    plane.altitude === null
+      ? 'نامشخص'
+      : (plane.altitude / 1000).toFixed(2) +
+        ' کیلومتر';
+
+  const speed =
+    plane.speed === null
+      ? 'نامشخص'
+      : (plane.speed * 3.6).toFixed(1) +
+        ' کیلومتر بر ساعت';
+
+  const heading =
+    plane.heading === null
+      ? 'نامشخص'
+      : plane.heading.toFixed(1) +
+        ' درجه';
+
+  return `
+
+    <div class="aircraft-popup">
+
+      <h3>✈️ اطلاعات پرواز</h3>
+
+      <p>
+        شناسه هواپیما:
+        ${escapeHTML(plane.icao)}
+      </p>
+
+      <p>
+        شماره پرواز:
+        ${escapeHTML(plane.callsign || 'نامشخص')}
+      </p>
+
+      <p>
+        کشور:
+        ${escapeHTML(plane.country || 'نامشخص')}
+      </p>
+
+      <p>ارتفاع: ${altitude}</p>
+
+      <p>سرعت: ${speed}</p>
+
+      <p>جهت حرکت: ${heading}</p>
+
+      <p>
+        فاصله از GPS:
+        ${plane.distance.toFixed(1)} کیلومتر
+      </p>
+
+      <p>
+        مبدأ و مقصد:
+        در داده فعلی موجود نیست
+      </p>
+
+    </div>
+
+  `;
+}
+
+// =========================================================
+// 29. دریافت مستقیم اطلاعات هواپیما
+// =========================================================
+
+async function fetchAircraft() {
+
+  if (aircraftFetchBusy) return;
+
+  if (!userLocation) {
+
+    setAircraftStatus(
+      'ابتدا GPS گوشی را دریافت کنید.'
     );
 
-    const request = timeoutSignal(18000);
+    return;
+  }
 
-    try {
-      const url =
-        `https://api.adsb.lol/v2/lat/${encodeURIComponent(location.lat)}` +
-        `/lon/${encodeURIComponent(location.lon)}` +
-        `/dist/${AIRCRAFT_RADIUS_NM}`;
+  aircraftFetchBusy = true;
 
-      const response = await fetch(url, {
+  setAircraftStatus(
+    'در حال دریافت اطلاعات پروازها...'
+  );
+
+  const button = byId(
+    'aircraftRefreshButton'
+  );
+
+  if (button) {
+    button.disabled = true;
+  }
+
+  try {
+
+    const response = await fetch(
+      'https://opensky-network.org/api/states/all',
+      {
         method: 'GET',
         cache: 'no-store',
         headers: {
           Accept: 'application/json'
-        },
-        signal: request.controller.signal
-      });
-
-      if (!response.ok) {
-        throw new Error(
-          `سرویس پرواز پاسخ HTTP ${response.status} داد.`
-        );
-      }
-
-      const data = await response.json();
-
-      if (!Array.isArray(data.ac)) {
-        throw new Error(
-          'ساختار اطلاعات پرواز معتبر نیست.'
-        );
-      }
-
-      const found = new Map();
-
-      data.ac.forEach(ac => {
-        const lat = Number(ac.lat);
-        const lon = Number(ac.lon);
-        const icao = ac.hex || ac.icao;
-
-        if (
-          !icao ||
-          !Number.isFinite(lat) ||
-          !Number.isFinite(lon)
-        ) return;
-
-        if (
-          String(ac.alt_baro).toLowerCase() === 'ground'
-        ) return;
-
-        const distanceKm = aircraftDistanceKm(
-          location.lat,
-          location.lon,
-          lat,
-          lon
-        );
-
-        if (
-          distanceKm >
-          AIRCRAFT_RADIUS_NM * 1.852 + 5
-        ) return;
-
-        const altitudeFeet = Number(ac.alt_baro);
-        const speedKnots = Number(ac.gs);
-        const heading = Number(ac.track);
-
-        found.set(String(icao), {
-          icao: String(icao),
-
-          callsign: String(
-            ac.flight || ac.callsign || ''
-          ).trim(),
-
-          registration: ac.r,
-          type: ac.t,
-
-          lat,
-          lon,
-
-          altitudeKm:
-            Number.isFinite(altitudeFeet)
-              ? altitudeFeet * 0.0003048
-              : null,
-
-          speedKmh:
-            Number.isFinite(speedKnots)
-              ? speedKnots * 1.852
-              : null,
-
-          heading:
-            Number.isFinite(heading)
-              ? heading
-              : null,
-
-          distanceKm
-        });
-      });
-
-      if (
-        typeof aircraftMarkers !== 'undefined' &&
-        typeof aircraftLayer !== 'undefined'
-      ) {
-        found.forEach(plane => {
-          let marker = aircraftMarkers.get(
-            plane.icao
-          );
-
-          const icon =
-            typeof createAircraftIcon === 'function'
-              ? createAircraftIcon(plane.heading)
-              : L.divIcon({
-                  html: '✈️',
-                  className: 'aircraft-icon'
-                });
-
-          if (!marker) {
-            marker = L.marker(
-              [plane.lat, plane.lon],
-              { icon }
-            );
-
-            aircraftMarkers.set(
-              plane.icao,
-              marker
-            );
-
-            marker.addTo(aircraftLayer);
-
-          } else {
-            marker.setLatLng([
-              plane.lat,
-              plane.lon
-            ]);
-
-            marker.setIcon(icon);
-          }
-
-          marker.bindPopup(
-            aircraftPopup(plane)
-          );
-        });
-
-        for (const [icao, marker] of aircraftMarkers) {
-          if (!found.has(icao)) {
-            aircraftLayer.removeLayer(marker);
-            aircraftMarkers.delete(icao);
-          }
         }
       }
-
-      setText(
-        'aircraftCount',
-        `تعداد هواپیماهای اطراف: ${found.size}`
-      );
-
-      setText(
-        'aircraftStatus',
-        `آخرین دریافت: ${
-          new Date().toLocaleTimeString('fa-IR')
-        } | شعاع ${AIRCRAFT_RADIUS_NM} مایل دریایی`
-      );
-
-    } catch (error) {
-      console.error(
-        'Regional aircraft error:',
-        error
-      );
-
-      setText(
-        'aircraftStatus',
-        'خطا در دریافت پروازها: ' +
-        (
-          error.name === 'AbortError'
-            ? 'زمان پاسخ سرویس پرواز تمام شد.'
-            : error.message
-        )
-      );
-
-    } finally {
-      request.clear();
-
-      window.__aircraftLocalBusy = false;
-
-      if (button) button.disabled = false;
-    }
-  }
-
-  window.fetchAircraft = enhancedFetchAircraft;
-
-  if (aircraftButton) {
-    aircraftButton.addEventListener(
-      'click',
-      enhancedFetchAircraft
     );
+
+    if (response.status === 429) {
+
+      throw new Error(
+        'محدودیت تعداد درخواست؛ کمی بعد دوباره تلاش کنید.'
+      );
+    }
+
+    if (
+      response.status === 401 ||
+      response.status === 403
+    ) {
+
+      throw new Error(
+        'دسترسی به اطلاعات پرواز از طرف سرویس محدود شده است.'
+      );
+    }
+
+    if (!response.ok) {
+
+      throw new Error(
+        'خطای API: HTTP ' + response.status
+      );
+    }
+
+    const result = await response.json();
+
+    if (!Array.isArray(result.states)) {
+
+      throw new Error(
+        'اطلاعات پرواز معتبر نیست یا سرویس داده‌ای برنگرداند.'
+      );
+    }
+
+    const found = new Map();
+
+    result.states.forEach(state => {
+
+      if (
+        !Array.isArray(state) ||
+        state.length < 11
+      ) {
+        return;
+      }
+
+      const icao = state[0];
+
+      const callsign =
+        (state[1] || '').trim();
+
+      const country = state[2] || '';
+
+      const lon = state[5];
+
+      const lat = state[6];
+
+      const baroAltitude = state[7];
+
+      const onGround = state[8];
+
+      const speed = state[9];
+
+      const heading = state[10];
+
+      const geoAltitude = state[13];
+
+      if (
+        !icao ||
+        !finite(lat) ||
+        !finite(lon)
+      ) {
+        return;
+      }
+
+      // حذف هواپیماهای روی زمین
+      if (onGround === true) return;
+
+      const distance = aircraftDistanceKm(
+        userLocation.lat,
+        userLocation.lon,
+        lat,
+        lon
+      );
+
+      if (
+        distance > CONFIG.aircraftRadiusKm
+      ) {
+        return;
+      }
+
+      const altitude = finite(geoAltitude)
+        ? geoAltitude
+        : finite(baroAltitude)
+          ? baroAltitude
+          : null;
+
+      found.set(icao, {
+
+        icao,
+        callsign,
+        country,
+        lat,
+        lon,
+        altitude,
+
+        speed: finite(speed)
+          ? speed
+          : null,
+
+        heading: finite(heading)
+          ? heading
+          : null,
+
+        distance
+
+      });
+
+    });
+
+    // به‌روزرسانی هواپیماها
+    found.forEach(plane => {
+
+      let marker = aircraftMarkers.get(
+        plane.icao
+      );
+
+      if (!marker) {
+
+        marker = L.marker(
+          [plane.lat, plane.lon],
+          {
+            icon: createAircraftIcon(
+              plane.heading
+            )
+          }
+        );
+
+        aircraftMarkers.set(
+          plane.icao,
+          marker
+        );
+
+        marker.addTo(aircraftLayer);
+
+      } else {
+
+        marker.setLatLng([
+          plane.lat,
+          plane.lon
+        ]);
+
+        marker.setIcon(
+          createAircraftIcon(
+            plane.heading
+          )
+        );
+
+      }
+
+      marker.bindPopup(
+        aircraftPopup(plane)
+      );
+
+    });
+
+    // حذف هواپیماهای قدیمی
+    for (const [icao, marker] of aircraftMarkers) {
+
+      if (!found.has(icao)) {
+
+        aircraftLayer.removeLayer(marker);
+
+        aircraftMarkers.delete(icao);
+      }
+
+    }
+
+    setText(
+      'aircraftCount',
+      'تعداد هواپیماهای شناسایی‌شده: ' +
+      found.size.toLocaleString('fa-IR')
+    );
+
+    setAircraftStatus(
+      'آخرین دریافت: ' +
+      formatLocalTime(new Date(), false)
+    );
+
+  } catch (error) {
+
+    console.error(
+      'Aircraft API error:',
+      error
+    );
+
+    setAircraftStatus(
+      'خطا در دریافت: ' + error.message
+    );
+
+  } finally {
+
+    aircraftFetchBusy = false;
+
+    if (button) {
+      button.disabled = false;
+    }
+
+  }
+}
+
+window.fetchAircraft = fetchAircraft;
+
+// =========================================================
+// 30. پاک‌سازی و مدیریت برنامه
+// =========================================================
+
+function destroy() {
+
+  destroyed = true;
+
+  timers.forEach(clearInterval);
+
+  timers = [];
+
+  if (map) {
+    map.remove();
+  }
+}
+
+window.SatelliteExplorerPro = {
+
+  destroy,
+
+  loadSatellites,
+
+  updateSatellitePositions,
+
+  showSatelliteInfo,
+
+  getLocation,
+
+  predictSatellitePass,
+
+  fetchAircraft
+
+};
+
+// =========================================================
+// 31. شروع برنامه
+// =========================================================
+
+installExplorerStyles();
+
+initializeMap();
+
+aircraftControl.addTo(map);
+
+// دریافت ماهواره‌ها
+loadSatellites();
+
+// به‌روزرسانی موقعیت ماهواره‌ها هر ۵ ثانیه
+addTimer(
+  updateSatellitePositions,
+  CONFIG.positionRefreshMs
+);
+
+// دریافت TLE جدید هر ۳۰ دقیقه
+addTimer(
+  loadSatellites,
+  CONFIG.satelliteRefreshMs
+);
+
+// دریافت خودکار پروازها هر ۳۰ دقیقه
+addTimer(() => {
+
+  if (userLocation) {
+    fetchAircraft();
   }
 
-  console.log(
-    '🌍 Earth analysis with pixel quality checks loaded.'
-  );
+}, CONFIG.aircraftRefreshMs);
 
-  console.log(
-    '✈️ Regional aircraft tracking loaded.'
-  );
+console.log(
+  '🛰️ Satellite Explorer Pro Loaded Successfully'
+);
+
+console.log(
+  '✈️ Aircraft Tracking Loaded Successfully'
+);
 
 })();
