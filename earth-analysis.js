@@ -1,3 +1,4 @@
+
 /* =========================================================
    🛰️ Satellite Explorer - Earth Analysis + Regional Aircraft
    این فایل را بعد از app.js بارگذاری کنید.
@@ -13,14 +14,17 @@
   }
 
   const STAC_URL = 'https://earth-search.aws.element84.com/v1/search';
-  const AIRCRAFT_RADIUS_NM = 120; // حدود 222 کیلومتر
+  const AIRCRAFT_RADIUS_NM = 120;
   const SCRIPT_TIMEOUT_MS = 20000;
 
   let selectedPoint = null;
   let analysisBusy = false;
+  let thermalBusy = false;
   let analysisMarker = null;
   let lastSentinelResult = null;
   let lastThermalResult = null;
+
+  /* ===================== ظاهر پنل ===================== */
 
   const style = document.createElement('style');
   style.textContent = `
@@ -51,15 +55,27 @@
     mapContainer.style.position = 'relative';
   }
 
+  /* جلوگیری از ساخت پنل تکراری */
+  const oldPanel = document.getElementById('earthAnalysisPanel');
+  if (oldPanel) oldPanel.remove();
+
   const panel = document.createElement('section');
   panel.id = 'earthAnalysisPanel';
   panel.innerHTML = `
     <h3>🌍 تحلیل نقطه انتخابی</h3>
     <div id="earthPointText">برای شروع، روی یک نقطه از نقشه بزنید.</div>
-    <button id="earthAnalyzeButton" type="button" disabled>🔬 تحلیل خاک و مواد معدنی</button>
-    <button id="earthThermalButton" type="button" disabled>🌡️ دریافت دمای سطح زمین</button>
-    <div id="earthMineralOutput" class="earth-result">شاخص‌های طیفی هنوز دریافت نشده‌اند.</div>
-    <div id="earthThermalOutput" class="earth-result">داده حرارتی هنوز دریافت نشده است.</div>
+    <button id="earthAnalyzeButton" type="button" disabled>
+      🔬 تحلیل خاک و مواد معدنی
+    </button>
+    <button id="earthThermalButton" type="button" disabled>
+      🌡️ دریافت دمای سطح زمین
+    </button>
+    <div id="earthMineralOutput" class="earth-result">
+      شاخص‌های طیفی هنوز دریافت نشده‌اند.
+    </div>
+    <div id="earthThermalOutput" class="earth-result">
+      داده حرارتی هنوز دریافت نشده است.
+    </div>
     <div class="earth-muted">
       نتایج تخمینی و وابسته به پوشش ابر، تاریخ تصویر و کیفیت داده‌اند؛
       تشخیص قطعی نوع خاک یا وجود معدن نیستند.
@@ -81,18 +97,41 @@
 
   function safe(value) {
     return String(value ?? '').replace(/[&<>"']/g, c => ({
-      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+      '&': '&amp;',
+      '<': '&lt;',
+      '>': '&gt;',
+      '"': '&quot;',
+      "'": '&#39;'
     })[c]);
   }
 
+  /* ===================== کتابخانه‌ها ===================== */
+
   function loadScriptOnce(src, globalName) {
-    if (window[globalName]) return Promise.resolve(window[globalName]);
+    if (window[globalName]) {
+      return Promise.resolve(window[globalName]);
+    }
 
     return new Promise((resolve, reject) => {
-      const existing = document.querySelector(`script[data-earth-lib="${globalName}"]`);
+      const existing = document.querySelector(
+        `script[data-earth-lib="${globalName}"]`
+      );
+
       if (existing) {
-        existing.addEventListener('load', () => resolve(window[globalName]), { once: true });
-        existing.addEventListener('error', () => reject(new Error('بارگذاری کتابخانه ناموفق بود: ' + globalName)), { once: true });
+        if (existing.dataset.loaded === 'true' && window[globalName]) {
+          resolve(window[globalName]);
+          return;
+        }
+
+        existing.addEventListener('load', () => {
+          if (window[globalName]) resolve(window[globalName]);
+          else reject(new Error('کتابخانه در دسترس نیست: ' + globalName));
+        }, { once: true });
+
+        existing.addEventListener('error', () => {
+          reject(new Error('بارگذاری کتابخانه ناموفق بود: ' + globalName));
+        }, { once: true });
+
         return;
       }
 
@@ -100,14 +139,27 @@
       script.src = src;
       script.async = true;
       script.dataset.earthLib = globalName;
-      script.onload = () => window[globalName]
-        ? resolve(window[globalName])
-        : reject(new Error('کتابخانه بارگذاری شد اما در دسترس نیست: ' + globalName));
-      script.onerror = () => reject(new Error('دریافت کتابخانه ناموفق بود: ' + globalName));
+
+      script.onload = () => {
+        script.dataset.loaded = 'true';
+
+        if (window[globalName]) {
+          resolve(window[globalName]);
+        } else {
+          reject(new Error('کتابخانه بارگذاری شد اما در دسترس نیست: ' + globalName));
+        }
+      };
+
+      script.onerror = () => {
+        reject(new Error('دریافت کتابخانه ناموفق بود: ' + globalName));
+      };
+
       document.head.appendChild(script);
 
       window.setTimeout(() => {
-        if (!window[globalName]) reject(new Error('مهلت بارگذاری کتابخانه تمام شد: ' + globalName));
+        if (!window[globalName]) {
+          reject(new Error('مهلت بارگذاری کتابخانه تمام شد: ' + globalName));
+        }
       }, SCRIPT_TIMEOUT_MS);
     });
   }
@@ -125,6 +177,8 @@
     ]);
   }
 
+  /* ===================== جست‌وجوی تصاویر ===================== */
+
   function pointGeometry(lat, lon) {
     return {
       type: 'Point',
@@ -137,29 +191,56 @@
   }
 
   async function searchStac(collection, lat, lon, days, cloudLimit) {
-    const response = await fetch(STAC_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Accept': 'application/geo+json, application/json' },
-      body: JSON.stringify({
-        collections: [collection],
-        intersects: pointGeometry(lat, lon),
-        datetime: `${isoDaysAgo(days)}/${new Date().toISOString()}`,
-        limit: 20,
-        query: { 'eo:cloud_cover': { lte: cloudLimit } },
-        sortby: [{ field: 'properties.datetime', direction: 'desc' }]
-      })
-    });
+    const controller = new AbortController();
+    const timeout = window.setTimeout(
+      () => controller.abort(),
+      SCRIPT_TIMEOUT_MS
+    );
 
-    if (!response.ok) {
-      throw new Error(`جست‌وجوی داده ماهواره‌ای ناموفق بود (HTTP ${response.status})`);
+    try {
+      const response = await fetch(STAC_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/geo+json, application/json'
+        },
+        signal: controller.signal,
+        body: JSON.stringify({
+          collections: [collection],
+          intersects: pointGeometry(lat, lon),
+          datetime: `${isoDaysAgo(days)}/${new Date().toISOString()}`,
+          limit: 20,
+          query: {
+            'eo:cloud_cover': { lte: cloudLimit }
+          },
+          sortby: [
+            { field: 'properties.datetime', direction: 'desc' }
+          ]
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(
+          `جست‌وجوی داده ماهواره‌ای ناموفق بود (HTTP ${response.status})`
+        );
+      }
+
+      const data = await response.json();
+      return Array.isArray(data.features) ? data.features : [];
+
+    } catch (error) {
+      if (error.name === 'AbortError') {
+        throw new Error('زمان جست‌وجوی تصاویر ماهواره‌ای تمام شد.');
+      }
+      throw error;
+    } finally {
+      window.clearTimeout(timeout);
     }
-
-    const data = await response.json();
-    return Array.isArray(data.features) ? data.features : [];
   }
 
   function getAsset(item, candidates) {
     const assets = item && item.assets ? item.assets : {};
+
     for (const key of candidates) {
       if (assets[key] && assets[key].href) {
         return { key, asset: assets[key] };
@@ -168,7 +249,9 @@
 
     const keys = Object.keys(assets);
     const match = keys.find(key =>
-      candidates.some(candidate => key.toLowerCase() === candidate.toLowerCase())
+      candidates.some(candidate =>
+        key.toLowerCase() === candidate.toLowerCase()
+      )
     );
 
     return match ? { key: match, asset: assets[match] } : null;
@@ -176,12 +259,22 @@
 
   function getEpsg(image, item, asset) {
     const assetEpsg = asset && asset['proj:epsg'];
-    const itemEpsg = item && item.properties && item.properties['proj:epsg'];
-    if (assetEpsg || itemEpsg) return Number(assetEpsg || itemEpsg);
+    const itemEpsg = item && item.properties &&
+      item.properties['proj:epsg'];
+
+    if (assetEpsg || itemEpsg) {
+      return Number(assetEpsg || itemEpsg);
+    }
 
     const keys = image.getGeoKeys ? image.getGeoKeys() : {};
-    return Number(keys.ProjectedCSTypeGeoKey || keys.GeographicTypeGeoKey || 0);
+    return Number(
+      keys.ProjectedCSTypeGeoKey ||
+      keys.GeographicTypeGeoKey ||
+      0
+    );
   }
+
+  /* ===================== خواندن پیکسل ===================== */
 
   async function readPointValue(item, assetInfo, lat, lon) {
     if (!assetInfo || !assetInfo.asset || !assetInfo.asset.href) {
@@ -189,33 +282,53 @@
     }
 
     const GeoTIFF = window.GeoTIFF;
-    const imageTiff = await GeoTIFF.fromUrl(assetInfo.asset.href, {
-      cache: true
-    });
-    const image = await imageTiff.getImage();
 
+    const imageTiff = await GeoTIFF.fromUrl(
+      assetInfo.asset.href,
+      { cache: true }
+    );
+
+    const image = await imageTiff.getImage();
     const epsg = getEpsg(image, item, assetInfo.asset);
+
     if (!epsg) {
       throw new Error('سیستم مختصات تصویر قابل شناسایی نیست.');
     }
 
-    const projected = window.proj4('EPSG:4326', `EPSG:${epsg}`, [lon, lat]);
+    const projected = window.proj4(
+      'EPSG:4326',
+      `EPSG:${epsg}`,
+      [lon, lat]
+    );
+
     const bounds = image.getBoundingBox();
     const width = image.getWidth();
     const height = image.getHeight();
 
     if (
-      projected[0] < bounds[0] || projected[0] > bounds[2] ||
-      projected[1] < bounds[1] || projected[1] > bounds[3]
+      projected[0] < bounds[0] ||
+      projected[0] > bounds[2] ||
+      projected[1] < bounds[1] ||
+      projected[1] > bounds[3]
     ) {
       throw new Error('نقطه انتخابی خارج از محدوده تصویر است.');
     }
 
-    const px = Math.max(0, Math.min(width - 1,
-      Math.floor((projected[0] - bounds[0]) / (bounds[2] - bounds[0]) * width)
+    const spanX = bounds[2] - bounds[0];
+    const spanY = bounds[3] - bounds[1];
+
+    if (!(spanX > 0) || !(spanY > 0)) {
+      throw new Error('ابعاد مکانی تصویر معتبر نیست.');
+    }
+
+    const px = Math.max(0, Math.min(
+      width - 1,
+      Math.floor((projected[0] - bounds[0]) / spanX * width)
     ));
-    const py = Math.max(0, Math.min(height - 1,
-      Math.floor((bounds[3] - projected[1]) / (bounds[3] - bounds[1]) * height)
+
+    const py = Math.max(0, Math.min(
+      height - 1,
+      Math.floor((bounds[3] - projected[1]) / spanY * height)
     ));
 
     const raster = await image.readRasters({
@@ -225,18 +338,30 @@
     });
 
     const raw = Number(raster[0]);
-    if (!Number.isFinite(raw) || raw === 0 || raw === -9999) {
-      throw new Error('پیکسل این نقطه فاقد داده معتبر است.');
-    }
 
     const bandMeta = Array.isArray(assetInfo.asset['raster:bands'])
       ? assetInfo.asset['raster:bands'][0] || {}
       : {};
 
+    const nodata = bandMeta.nodata;
+
+    if (
+      !Number.isFinite(raw) ||
+      (nodata !== undefined && raw === Number(nodata)) ||
+      raw === -9999 ||
+      raw === -32768
+    ) {
+      throw new Error('پیکسل این نقطه فاقد داده معتبر است.');
+    }
+
     return {
       raw,
-      scale: Number.isFinite(bandMeta.scale) ? bandMeta.scale : null,
-      offset: Number.isFinite(bandMeta.offset) ? bandMeta.offset : 0,
+      scale: Number.isFinite(bandMeta.scale)
+        ? bandMeta.scale
+        : null,
+      offset: Number.isFinite(bandMeta.offset)
+        ? bandMeta.offset
+        : 0,
       assetKey: assetInfo.key
     };
   }
@@ -245,19 +370,45 @@
     const scale = sample.scale !== null
       ? sample.scale
       : (Math.abs(sample.raw) > 2 ? 0.0001 : 1);
+
     return sample.raw * scale + sample.offset;
   }
 
   function ratio(a, b) {
+    return !Number.isFinite(a) ||
+      !Number.isFinite(b) ||
+      Math.abs(b) < 1e-9
+      ? null
+      : a / b;
+  }
+
+  function normalizedDifference(a, b) {
     const denominator = a + b;
-    return Math.abs(denominator) < 1e-9 ? null : (a - b) / denominator;
+
+    return !Number.isFinite(a) ||
+      !Number.isFinite(b) ||
+      Math.abs(denominator) < 1e-9
+      ? null
+      : (a - b) / denominator;
   }
 
   function classifySurface(ndvi, bsi) {
-    if (ndvi !== null && ndvi < -0.05) return 'احتمال آب یا سطح بسیار مرطوب';
-    if (ndvi !== null && ndvi > 0.35) return 'پوشش گیاهی قابل‌توجه';
-    if (bsi !== null && bsi > 0.18) return 'سطح خاکی یا زمین کم‌پوشش';
-    if (ndvi !== null && ndvi >= 0.1) return 'سطح مختلط با پوشش گیاهی پراکنده';
+    if (ndvi !== null && ndvi < -0.05) {
+      return 'احتمال آب یا سطح بسیار مرطوب';
+    }
+
+    if (ndvi !== null && ndvi > 0.35) {
+      return 'پوشش گیاهی قابل‌توجه';
+    }
+
+    if (bsi !== null && bsi > 0.18) {
+      return 'سطح خاکی یا زمین کم‌پوشش';
+    }
+
+    if (ndvi !== null && ndvi >= 0.1) {
+      return 'سطح مختلط با پوشش گیاهی پراکنده';
+    }
+
     return 'سطح برهنه، سنگی یا ساخته‌شده؛ تفکیک قطعی ممکن نیست';
   }
 
@@ -268,11 +419,20 @@
     return 'بالا';
   }
 
+  /* ===================== تحلیل Sentinel-2 ===================== */
+
   async function analyzeMinerals() {
     if (!selectedPoint || analysisBusy) return;
+
     analysisBusy = true;
-    $('earthAnalyzeButton').disabled = true;
-    setText('earthMineralOutput', 'در حال جست‌وجوی تصاویر Sentinel‑2 و خواندن باندهای طیفی...');
+
+    const button = $('earthAnalyzeButton');
+    if (button) button.disabled = true;
+
+    setText(
+      'earthMineralOutput',
+      'در حال جست‌وجوی تصاویر Sentinel-2 و خواندن باندهای طیفی...'
+    );
 
     try {
       await ensureRasterLibraries();
@@ -286,7 +446,9 @@
       );
 
       if (!items.length) {
-        throw new Error('برای این نقطه در بازه یک‌سال اخیر تصویر مناسب پیدا نشد.');
+        throw new Error(
+          'برای این نقطه در بازه یک‌سال اخیر تصویر مناسب پیدا نشد.'
+        );
       }
 
       let item = null;
@@ -307,27 +469,48 @@
       }
 
       if (!item || !bands) {
-        throw new Error('تصویر پیدا شد، اما همه باندهای لازم در آن موجود نبودند.');
+        throw new Error(
+          'تصویر پیدا شد، اما همه باندهای لازم در آن موجود نبودند.'
+        );
       }
 
       const entries = Object.entries(bands);
-      const samples = await Promise.all(entries.map(([, asset]) =>
-        readPointValue(item, asset, selectedPoint.lat, selectedPoint.lon)
-      ));
+
+      const samples = await Promise.all(
+        entries.map(([, asset]) =>
+          readPointValue(
+            item,
+            asset,
+            selectedPoint.lat,
+            selectedPoint.lon
+          )
+        )
+      );
 
       const values = {};
+
       entries.forEach(([name], index) => {
         values[name] = scaledReflectance(samples[index]);
       });
-      const ndvi = ratio(values.nir, values.red);
-      const ironRatio = values.blue > 0 ? values.red / values.blue : null;
-      const clayRatio = values.swir22 > 0 ? values.swir16 / values.swir22 : null;
-      const bsiDenominator = values.swir16 + values.red + values.nir + values.blue;
+
+      const ndvi = normalizedDifference(values.nir, values.red);
+      const ironRatio = ratio(values.red, values.blue);
+      const clayRatio = ratio(values.swir16, values.swir22);
+
+      const bsiDenominator =
+        values.swir16 + values.red + values.nir + values.blue;
+
       const bsi = Math.abs(bsiDenominator) < 1e-9
         ? null
-        : ((values.swir16 + values.red) - (values.nir + values.blue)) / bsiDenominator;
+        : (
+            (values.swir16 + values.red) -
+            (values.nir + values.blue)
+          ) / bsiDenominator;
 
-      const cloud = Number(item.properties && item.properties['eo:cloud_cover']);
+      const cloud = Number(
+        item.properties && item.properties['eo:cloud_cover']
+      );
+
       const date = item.properties && item.properties.datetime
         ? new Date(item.properties.datetime).toLocaleDateString('fa-IR')
         : 'نامشخص';
@@ -345,39 +528,65 @@
 
       lastSentinelResult = result;
 
-      const fmt = n => n === null || !Number.isFinite(n) ? 'نامشخص' : n.toFixed(3);
+      const fmt = n =>
+        n === null || !Number.isFinite(n)
+          ? 'نامشخص'
+          : n.toFixed(3);
 
       setHTML('earthMineralOutput', `
-        <b>🔬 نتیجه تحلیل طیفی Sentinel‑2</b><br>
+        <b>🔬 نتیجه تحلیل طیفی Sentinel-2</b><br>
         تاریخ تصویر: ${safe(result.date)}<br>
-        پوشش ابر صحنه: ${result.cloud === null ? 'نامشخص' : result.cloud.toFixed(1) + '%'}<br>
+        پوشش ابر صحنه:
+        ${result.cloud === null ? 'نامشخص' : result.cloud.toFixed(1) + '%'}<br>
         سطح احتمالی: ${safe(result.surface)}<br>
         شاخص NDVI: ${fmt(result.ndvi)}<br>
-        نسبت قرمز به آبی (نشانه طیفی آهن): ${fmt(result.ironRatio)}
+        نسبت قرمز به آبی (نشانه طیفی آهن):
+        ${fmt(result.ironRatio)}
         — شدت نسبی: ${strengthLabel(result.ironRatio, 1.15, 1.4)}<br>
-        نسبت SWIR1/SWIR2 (نشانه طیفی رس): ${fmt(result.clayRatio)}
+        نسبت SWIR1/SWIR2 (نشانه طیفی رس):
+        ${fmt(result.clayRatio)}
         — شدت نسبی: ${strengthLabel(result.clayRatio, 1.0, 1.15)}<br>
         شاخص خاک برهنه BSI: ${fmt(result.bsi)}<br>
-        <span class="earth-muted">شناسه تصویر: ${safe(result.itemId)}</span>
+        <span class="earth-muted">
+          شناسه تصویر: ${safe(result.itemId)}
+        </span>
       `);
 
       const existing = $('mineralResult');
-      if (existing) existing.textContent =
-        `سطح: ${result.surface} | آهن: ${fmt(result.ironRatio)} | رس: ${fmt(result.clayRatio)} | BSI: ${fmt(result.bsi)} | تصویر: ${result.date}`;
+
+      if (existing) {
+        existing.textContent =
+          `سطح: ${result.surface} | آهن: ${fmt(result.ironRatio)} | ` +
+          `رس: ${fmt(result.clayRatio)} | BSI: ${fmt(result.bsi)} | ` +
+          `تصویر: ${result.date}`;
+      }
 
     } catch (error) {
       console.error('Sentinel analysis error:', error);
-      setText('earthMineralOutput', 'خطا در تحلیل طیفی: ' + error.message);
+      setText(
+        'earthMineralOutput',
+        'خطا در تحلیل طیفی: ' + error.message
+      );
     } finally {
       analysisBusy = false;
-      $('earthAnalyzeButton').disabled = !selectedPoint;
+      if (button) button.disabled = !selectedPoint;
     }
   }
 
+  /* ===================== تحلیل حرارتی Landsat ===================== */
+
   async function analyzeThermal() {
-    if (!selectedPoint) return;
-    $('earthThermalButton').disabled = true;
-    setText('earthThermalOutput', 'در حال جست‌وجوی داده دمای سطح زمین از Landsat...');
+    if (!selectedPoint || thermalBusy) return;
+
+    thermalBusy = true;
+
+    const button = $('earthThermalButton');
+    if (button) button.disabled = true;
+
+    setText(
+      'earthThermalOutput',
+      'در حال جست‌وجوی داده دمای سطح زمین از Landsat...'
+    );
 
     try {
       await ensureRasterLibraries();
@@ -391,14 +600,20 @@
       );
 
       if (!items.length) {
-        throw new Error('تصویر حرارتی مناسب Landsat برای این نقطه پیدا نشد.');
+        throw new Error(
+          'تصویر حرارتی مناسب Landsat برای این نقطه پیدا نشد.'
+        );
       }
 
       let item = null;
       let thermalAsset = null;
 
       for (const candidate of items) {
-        const found = getAsset(candidate, ['lwir11', 'ST_B10', 'st', 'surface_temperature']);
+        const found = getAsset(
+          candidate,
+          ['lwir11', 'ST_B10', 'st', 'surface_temperature']
+        );
+
         if (found) {
           item = candidate;
           thermalAsset = found;
@@ -407,7 +622,9 @@
       }
 
       if (!item || !thermalAsset) {
-        throw new Error('باند دمای سطح زمین در تصاویر پیدا شده موجود نیست.');
+        throw new Error(
+          'باند دمای سطح زمین در تصاویر پیدا شده موجود نیست.'
+        );
       }
 
       const sample = await readPointValue(
@@ -419,42 +636,76 @@
 
       // ضریب رسمی Landsat Collection 2 Level-2:
       // Kelvin = DN * 0.00341802 + 149
-      const scale = sample.scale !== null ? sample.scale : 0.00341802;
-      const offset = sample.scale !== null ? sample.offset : 149.0;
+      const scale = sample.scale !== null
+        ? sample.scale
+        : 0.00341802;
+
+      const offset = sample.scale !== null
+        ? sample.offset
+        : 149.0;
+
       const kelvin = sample.raw * scale + offset;
       const celsius = kelvin - 273.15;
 
-      if (!Number.isFinite(celsius) || celsius < -80 || celsius > 90) {
-        throw new Error('مقدار حرارتی خارج از محدوده معتبر است؛ احتمالاً پیکسل فاقد داده است.');
+      if (
+        !Number.isFinite(celsius) ||
+        celsius < -80 ||
+        celsius > 90
+      ) {
+        throw new Error(
+          'مقدار حرارتی خارج از محدوده معتبر است؛ احتمالاً پیکسل فاقد داده است.'
+        );
       }
 
       const date = item.properties && item.properties.datetime
         ? new Date(item.properties.datetime).toLocaleDateString('fa-IR')
         : 'نامشخص';
-      const cloud = Number(item.properties && item.properties['eo:cloud_cover']);
 
-      lastThermalResult = { celsius, kelvin, date, cloud, itemId: item.id };
+      const cloud = Number(
+        item.properties && item.properties['eo:cloud_cover']
+      );
+
+      lastThermalResult = {
+        celsius,
+        kelvin,
+        date,
+        cloud,
+        itemId: item.id
+      };
 
       setHTML('earthThermalOutput', `
         <b>🌡️ دمای سطح زمین از Landsat</b><br>
         دمای تخمینی سطح: <b>${celsius.toFixed(1)} °C</b><br>
         دما بر حسب کلوین: ${kelvin.toFixed(1)} K<br>
         تاریخ تصویر: ${safe(date)}<br>
-        پوشش ابر صحنه: ${Number.isFinite(cloud) ? cloud.toFixed(1) + '%' : 'نامشخص'}<br>
-        <span class="earth-muted">شناسه تصویر: ${safe(item.id)}</span>
+        پوشش ابر صحنه:
+        ${Number.isFinite(cloud) ? cloud.toFixed(1) + '%' : 'نامشخص'}<br>
+        <span class="earth-muted">
+          شناسه تصویر: ${safe(item.id)}
+        </span>
       `);
 
       const existing = $('thermalResult');
-      if (existing) existing.textContent =
-        `دمای تخمینی سطح: ${celsius.toFixed(1)} °C | تاریخ تصویر: ${date}`;
+
+      if (existing) {
+        existing.textContent =
+          `دمای تخمینی سطح: ${celsius.toFixed(1)} °C | ` +
+          `تاریخ تصویر: ${date}`;
+      }
 
     } catch (error) {
       console.error('Landsat thermal error:', error);
-      setText('earthThermalOutput', 'خطا در دریافت دمای سطح: ' + error.message);
+      setText(
+        'earthThermalOutput',
+        'خطا در دریافت دمای سطح: ' + error.message
+      );
     } finally {
-      $('earthThermalButton').disabled = !selectedPoint;
+      thermalBusy = false;
+      if (button) button.disabled = !selectedPoint;
     }
   }
+
+  /* ===================== انتخاب نقطه روی نقشه ===================== */
 
   function selectMapPoint(lat, lon) {
     selectedPoint = { lat, lon };
@@ -465,68 +716,100 @@
     );
 
     const coordinateOutput = $('selectedCoordinates');
+
     if (coordinateOutput) {
       coordinateOutput.textContent =
         `عرض: ${lat.toFixed(6)} | طول: ${lon.toFixed(6)}`;
     }
 
-    if (analysisMarker) map.removeLayer(analysisMarker);
+    if (analysisMarker) {
+      map.removeLayer(analysisMarker);
+    }
+
     analysisMarker = L.circleMarker([lat, lon], {
       radius: 8,
       color: '#ffeb3b',
       fillColor: '#ff9800',
       fillOpacity: 0.9,
       weight: 2
-    }).addTo(map).bindPopup(
-      `نقطه تحلیل<br>${lat.toFixed(6)}, ${lon.toFixed(6)}`
-    ).openPopup();
+    })
+      .addTo(map)
+      .bindPopup(
+        `نقطه تحلیل<br>${lat.toFixed(6)}, ${lon.toFixed(6)}`
+      )
+      .openPopup();
 
     $('earthAnalyzeButton').disabled = false;
     $('earthThermalButton').disabled = false;
 
-    setText('earthMineralOutput', 'نقطه انتخاب شد؛ برای دریافت شاخص‌های طیفی دکمه تحلیل را بزنید.');
-    setText('earthThermalOutput', 'نقطه انتخاب شد؛ برای دریافت دمای سطح دکمه حرارتی را بزنید.');
+    setText(
+      'earthMineralOutput',
+      'نقطه انتخاب شد؛ برای دریافت شاخص‌های طیفی دکمه تحلیل را بزنید.'
+    );
+
+    setText(
+      'earthThermalOutput',
+      'نقطه انتخاب شد؛ برای دریافت دمای سطح دکمه حرارتی را بزنید.'
+    );
   }
 
   map.on('click', event => {
     selectMapPoint(event.latlng.lat, event.latlng.lng);
   });
 
-  $('earthAnalyzeButton').addEventListener('click', analyzeMinerals);
-  $('earthThermalButton').addEventListener('click', analyzeThermal);
+  $('earthAnalyzeButton').addEventListener(
+    'click',
+    analyzeMinerals
+  );
 
-  // سازگاری با دکمه‌های قدیمی موجود در index.html
+  $('earthThermalButton').addEventListener(
+    'click',
+    analyzeThermal
+  );
+
+  /* سازگاری با دکمه‌های قدیمی موجود در index.html */
   window.loadMineralData = analyzeMinerals;
   window.loadThermalData = analyzeThermal;
+
   window.runEarthAnalysis = async () => {
     if (!selectedPoint) {
-      setText('earthPointText', 'ابتدا روی یک نقطه از نقشه بزنید.');
+      setText(
+        'earthPointText',
+        'ابتدا روی یک نقطه از نقشه بزنید.'
+      );
       return;
     }
+
     await analyzeMinerals();
     await analyzeThermal();
   };
 
-  // =====================================================
-  // اصلاح دریافت پروازها: فقط محدوده محلی، نه کل جهان
-  // =====================================================
+  /* ===================== پروازهای منطقه ===================== */
 
-  const oldAircraftFetch = window.fetchAircraft;
-  const oldAircraftButton = $('aircraftRefreshButton');
+  // حذف listenerهای قدیمی دکمه پرواز
+  let oldAircraftButton = $('aircraftRefreshButton');
 
-  if (oldAircraftButton && oldAircraftFetch && typeof L.DomEvent !== 'undefined') {
-    L.DomEvent.off(oldAircraftButton, 'click', oldAircraftFetch);
+  if (oldAircraftButton) {
+    const cleanAircraftButton =
+      oldAircraftButton.cloneNode(true);
+
+    oldAircraftButton.replaceWith(cleanAircraftButton);
+    oldAircraftButton = cleanAircraftButton;
   }
 
   function aircraftDistanceKm(lat1, lon1, lat2, lon2) {
     const rad = value => value * Math.PI / 180;
+
     const dLat = rad(lat2 - lat1);
     const dLon = rad(lon2 - lon1);
+
     const a =
       Math.sin(dLat / 2) ** 2 +
       Math.cos(rad(lat1)) * Math.cos(rad(lat2)) *
       Math.sin(dLon / 2) ** 2;
-    return 6371 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+    return 6371 * 2 *
+      Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   }
 
   function aircraftPopupNew(plane) {
@@ -535,10 +818,20 @@
         <b>✈️ اطلاعات پرواز</b><br>
         شناسه: ${safe(plane.icao)}<br>
         پرواز: ${safe(plane.callsign || 'نامشخص')}<br>
-        ثبت/نوع: ${safe(plane.registration || plane.type || 'نامشخص')}<br>
-        ارتفاع: ${plane.altitudeKm === null ? 'نامشخص' : plane.altitudeKm.toFixed(2) + ' کیلومتر'}<br>
-        سرعت: ${plane.speedKmh === null ? 'نامشخص' : plane.speedKmh.toFixed(0) + ' کیلومتر بر ساعت'}<br>
-        جهت: ${plane.heading === null ? 'نامشخص' : plane.heading.toFixed(0) + ' درجه'}<br>
+        ثبت/نوع:
+        ${safe(plane.registration || plane.type || 'نامشخص')}<br>
+        ارتفاع:
+        ${plane.altitudeKm === null
+          ? 'نامشخص'
+          : plane.altitudeKm.toFixed(2) + ' کیلومتر'}<br>
+        سرعت:
+        ${plane.speedKmh === null
+          ? 'نامشخص'
+          : plane.speedKmh.toFixed(0) + ' کیلومتر بر ساعت'}<br>
+        جهت:
+        ${plane.heading === null
+          ? 'نامشخص'
+          : plane.heading.toFixed(0) + ' درجه'}<br>
         فاصله از GPS: ${plane.distanceKm.toFixed(1)} کیلومتر
       </div>
     `;
@@ -547,24 +840,45 @@
   async function enhancedFetchAircraft() {
     if (window.__aircraftLocalBusy) return;
 
-    const location = (typeof userLocation !== 'undefined') ? userLocation : null;
-    if (!location || !Number.isFinite(location.lat) || !Number.isFinite(location.lon)) {
-      setText('aircraftStatus', 'ابتدا GPS گوشی را دریافت کنید.');
+    const location =
+      (typeof userLocation !== 'undefined')
+        ? userLocation
+        : null;
+
+    if (
+      !location ||
+      !Number.isFinite(location.lat) ||
+      !Number.isFinite(location.lon)
+    ) {
+      setText(
+        'aircraftStatus',
+        'ابتدا GPS گوشی را دریافت کنید.'
+      );
       return;
     }
 
     window.__aircraftLocalBusy = true;
+
     const button = $('aircraftRefreshButton');
     if (button) button.disabled = true;
-    setText('aircraftStatus', 'در حال دریافت پروازهای اطراف GPS...');
+
+    setText(
+      'aircraftStatus',
+      'در حال دریافت پروازهای اطراف GPS...'
+    );
 
     const controller = new AbortController();
-    const timeout = window.setTimeout(() => controller.abort(), 18000);
+
+    const timeout = window.setTimeout(
+      () => controller.abort(),
+      18000
+    );
 
     try {
       const url =
         `https://api.adsb.lol/v2/lat/${encodeURIComponent(location.lat)}` +
-        `/lon/${encodeURIComponent(location.lon)}/dist/${AIRCRAFT_RADIUS_NM}`;
+        `/lon/${encodeURIComponent(location.lon)}` +
+        `/dist/${AIRCRAFT_RADIUS_NM}`;
 
       const response = await fetch(url, {
         method: 'GET',
@@ -574,12 +888,17 @@
       });
 
       if (!response.ok) {
-        throw new Error(`سرویس پرواز پاسخ HTTP ${response.status} داد.`);
+        throw new Error(
+          `سرویس پرواز پاسخ HTTP ${response.status} داد.`
+        );
       }
 
       const data = await response.json();
+
       if (!Array.isArray(data.ac)) {
-        throw new Error('ساختار اطلاعات پرواز معتبر نیست.');
+        throw new Error(
+          'ساختار اطلاعات پرواز معتبر نیست.'
+        );
       }
 
       const found = new Map();
@@ -589,11 +908,28 @@
         const lon = Number(ac.lon);
         const icao = ac.hex || ac.icao;
 
-        if (!icao || !Number.isFinite(lat) || !Number.isFinite(lon)) return;
-        if (String(ac.alt_baro).toLowerCase() === 'ground') return;
+        if (
+          !icao ||
+          !Number.isFinite(lat) ||
+          !Number.isFinite(lon)
+        ) {
+          return;
+        }
 
-        const distanceKm = aircraftDistanceKm(location.lat, location.lon, lat, lon);
-        if (distanceKm > AIRCRAFT_RADIUS_NM * 1.852 + 5) return;
+        if (String(ac.alt_baro).toLowerCase() === 'ground') {
+          return;
+        }
+
+        const distanceKm = aircraftDistanceKm(
+          location.lat,
+          location.lon,
+          lat,
+          lon
+        );
+
+        if (distanceKm > AIRCRAFT_RADIUS_NM * 1.852 + 5) {
+          return;
+        }
 
         const altFeet = Number(ac.alt_baro);
         const speedKnots = Number(ac.gs);
@@ -606,25 +942,42 @@
           type: ac.t,
           lat,
           lon,
-          altitudeKm: Number.isFinite(altFeet) ? altFeet * 0.0003048 : null,
-          speedKmh: Number.isFinite(speedKnots) ? speedKnots * 1.852 : null,
-          heading: Number.isFinite(heading) ? heading : null,
+          altitudeKm: Number.isFinite(altFeet)
+            ? altFeet * 0.0003048
+            : null,
+          speedKmh: Number.isFinite(speedKnots)
+            ? speedKnots * 1.852
+            : null,
+          heading: Number.isFinite(heading)
+            ? heading
+            : null,
           distanceKm
         });
       });
 
-      if (typeof aircraftMarkers !== 'undefined' && typeof aircraftLayer !== 'undefined') {
+      if (
+        typeof aircraftMarkers !== 'undefined' &&
+        typeof aircraftLayer !== 'undefined'
+      ) {
         found.forEach(plane => {
           let marker = aircraftMarkers.get(plane.icao);
 
           const icon = typeof createAircraftIcon === 'function'
             ? createAircraftIcon(plane.heading)
-            : L.divIcon({ html: '✈️', className: 'aircraft-icon' });
+            : L.divIcon({
+                html: '✈️',
+                className: 'aircraft-icon'
+              });
 
           if (!marker) {
-            marker = L.marker([plane.lat, plane.lon], { icon });
+            marker = L.marker(
+              [plane.lat, plane.lon],
+              { icon }
+            );
+
             aircraftMarkers.set(plane.icao, marker);
             marker.addTo(aircraftLayer);
+
           } else {
             marker.setLatLng([plane.lat, plane.lon]);
             marker.setIcon(icon);
@@ -641,31 +994,47 @@
         }
       }
 
-      setText('aircraftCount', `تعداد هواپیماهای اطراف: ${found.size}`);
+      setText(
+        'aircraftCount',
+        `تعداد هواپیماهای اطراف: ${found.size}`
+      );
+
       setText(
         'aircraftStatus',
-        `آخرین دریافت: ${new Date().toLocaleTimeString('fa-IR')} | شعاع ${AIRCRAFT_RADIUS_NM} مایل دریایی`
+        `آخرین دریافت: ${new Date().toLocaleTimeString('fa-IR')} | ` +
+        `شعاع ${AIRCRAFT_RADIUS_NM} مایل دریایی`
       );
 
     } catch (error) {
       console.error('Regional aircraft error:', error);
+
       const message = error.name === 'AbortError'
         ? 'زمان پاسخ سرویس پرواز تمام شد.'
         : error.message;
-      setText('aircraftStatus', 'خطا در دریافت پروازها: ' + message);
+
+      setText(
+        'aircraftStatus',
+        'خطا در دریافت پروازها: ' + message
+      );
+
     } finally {
       window.clearTimeout(timeout);
       window.__aircraftLocalBusy = false;
+
       if (button) button.disabled = false;
     }
   }
 
   window.fetchAircraft = enhancedFetchAircraft;
 
-  if (oldAircraftButton && typeof L.DomEvent !== 'undefined') {
-    L.DomEvent.on(oldAircraftButton, 'click', enhancedFetchAircraft);
+  if (oldAircraftButton) {
+    oldAircraftButton.addEventListener(
+      'click',
+      enhancedFetchAircraft
+    );
   }
 
   console.log('🌍 Earth analysis tools loaded.');
   console.log('✈️ Regional aircraft tracking updated.');
+
 })();
