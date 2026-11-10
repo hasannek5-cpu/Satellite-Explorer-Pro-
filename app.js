@@ -1143,7 +1143,7 @@ function renderSatelliteCommunication() {
 // 19. بخش پروازهای هواپیما
 // =====================================================
 
-const AIRCRAFT_RADIUS_KM = 20000;
+const AIRCRAFT_RADIUS_KM = 2000;
 
 const AIRCRAFT_REFRESH_MS =
   30 * 60 * 1000;
