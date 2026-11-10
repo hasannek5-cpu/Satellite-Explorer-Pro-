@@ -51,7 +51,7 @@ const CONFIG = {
   positionRefreshMs: 5000,
   aircraftRefreshMs: 30 * 60 * 1000,
 
-  aircraftRadiusKm: 20000,
+  aircraftRadiusKm: 2000,
 
   passSearchHours: 24,
   passStepMs: 30000,
