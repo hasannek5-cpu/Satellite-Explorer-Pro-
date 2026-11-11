@@ -844,12 +844,12 @@ function renderSatelliteCommunication() {
 }
 
 // =====================================================
+// =====================================================
 // 19. LIVE AIRCRAFT TRACKING
-encodeURIComponent(userLocation.lat) +
-      '&lon=' +
-      encodeURIComponent(userLocation.lon) +
-      '&dist=' +
-      AIRCRAFT_RADIUS_NM;
+// =====================================================
+
+const AIRCRAFT_RADIUS_NM = 250;
+const AIRCRAFT_REFRESH_MS = 20000;
 
 // =====================================================
 
