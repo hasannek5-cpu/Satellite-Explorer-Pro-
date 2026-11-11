@@ -3,6 +3,7 @@
    🛰️ SATELLITE EXPLORER PRO
    GPS + SATELLITES + ORBIT + PASS PREDICTION
    RADIO INFORMATION + LIVE AIRCRAFT
+   COMPLETE FIXED VERSION
    ===================================================== */
 
 if (typeof L === 'undefined') {
@@ -547,9 +548,7 @@ function calculateLook(sat, timestamp) {
   };
 
   const gmst = satellite.gstime(date);
-
   const ecf = satellite.eciToEcf(result.position, gmst);
-
   const look = satellite.ecfToLookAngles(observer, ecf);
 
   const elevation = look.elevation * 180 / Math.PI;
@@ -844,16 +843,21 @@ function renderSatelliteCommunication() {
 }
 
 // =====================================================
-// 19. LIVE AIRCRAFT TRACKING
+// 19. LIVE AIRCRAFT TRACKING - FIXED
 // =====================================================
 
 const AIRCRAFT_RADIUS_NM = 250;
 const AIRCRAFT_REFRESH_MS = 20000;
+const AIRCRAFT_TIMEOUT_MS = 20000;
+
+const AIRCRAFT_API =
+  'https://satellite-explorer-pro.onrender.com/api/aircraft';
 
 const aircraftLayer = L.layerGroup().addTo(map);
 const aircraftMarkers = new Map();
 
 let aircraftFetchBusy = false;
+let aircraftLastSuccess = 0;
 
 function aircraftDistanceKm(lat1, lon1, lat2, lon2) {
   const R = 6371;
@@ -895,7 +899,7 @@ aircraftControl.onAdd = function () {
     <div id="aircraftStatus">
       ابتدا موقعیت GPS را دریافت کنید
     </div>
-    <div id="aircraftCount">تعداد: ۰</div>
+    <div id="aircraftCount">تعداد هواپیماهای قابل مشاهده: ۰</div>
     <button id="aircraftRefreshButton" type="button"
       style="width:100%;padding:8px;margin-top:7px;
       border:0;border-radius:8px;background:#087cf0;
@@ -923,7 +927,16 @@ function setAircraftStatus(message) {
   if (el) el.textContent = message;
 }
 
-// Airplane icon with direction
+function setAircraftCount(value) {
+  const el = document.getElementById('aircraftCount');
+
+  if (el) {
+    el.textContent =
+      'تعداد هواپیماهای قابل مشاهده: ' + value;
+  }
+}
+
+// Airplane icon
 
 function createAircraftIcon(heading) {
   const direction = Number.isFinite(heading) ? heading : 0;
@@ -947,7 +960,7 @@ function createAircraftIcon(heading) {
   });
 }
 
-// Aircraft information popup
+// Aircraft popup
 
 function aircraftPopup(plane) {
   const altitude = Number.isFinite(plane.altitude)
@@ -967,17 +980,56 @@ function aircraftPopup(plane) {
       <h3>✈️ اطلاعات پرواز</h3>
       <p>شناسه: ${escapeHTML(plane.icao)}</p>
       <p>شماره پرواز: ${escapeHTML(plane.callsign || 'نامشخص')}</p>
-      <p>کشور ثبت: ${escapeHTML(plane.country || 'نامشخص')}</p>
+      <p>ثبت هواپیما: ${escapeHTML(plane.registration || 'نامشخص')}</p>
+      <p>نوع هواپیما: ${escapeHTML(plane.aircraftType || 'نامشخص')}</p>
       <p>ارتفاع: ${altitude}</p>
       <p>سرعت: ${speed}</p>
       <p>جهت حرکت: ${heading}</p>
       <p>فاصله از GPS: ${plane.distance.toFixed(1)} کیلومتر</p>
-      <p>آخرین مشاهده موقعیت: ${plane.seenPosition} ثانیه قبل</p>
+      <p>آخرین مشاهده موقعیت: ${plane.seenPosition.toFixed(1)} ثانیه قبل</p>
     </div>
   `;
 }
 
-// Fetch live aircraft around the user's GPS
+// Fetch with timeout
+
+async function fetchAircraftData(url) {
+  const controller = new AbortController();
+
+  const timeoutId = setTimeout(
+    () => controller.abort(),
+    AIRCRAFT_TIMEOUT_MS
+  );
+
+  try {
+    const response = await fetch(url, {
+      method: 'GET',
+      cache: 'no-store',
+      headers: {
+        Accept: 'application/json'
+      },
+      signal: controller.signal
+    });
+
+    if (!response.ok) {
+      throw new Error('HTTP ' + response.status);
+    }
+
+    return await response.json();
+
+  } catch (error) {
+    if (error.name === 'AbortError') {
+      throw new Error('مهلت دریافت اطلاعات تمام شد؛ سرور پاسخ نداد.');
+    }
+
+    throw error;
+
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+// Main aircraft fetch
 
 async function fetchAircraft() {
   if (aircraftFetchBusy) return;
@@ -992,37 +1044,24 @@ async function fetchAircraft() {
   aircraftFetchBusy = true;
 
   setAircraftStatus('در حال دریافت پروازهای اطراف شما...');
-
+  
   const button = document.getElementById(
     'aircraftRefreshButton'
   );
 
-  if (button) button.disabled = true;
+  if (button) {
+    button.disabled = true;
+    button.textContent = 'در حال دریافت...';
+  }
 
   try {
     const url =
-      'https://satellite-explorer-pro.onrender.com/api/aircraft?lat=' +
-      encodeURIComponent(userLocation.lat) +
-      '&lon=' +
-      encodeURIComponent(userLocation.lon) +
-      '&dist=' +
-      AIRCRAFT_RADIUS_NM;
+      AIRCRAFT_API +
+      '?lat=' + encodeURIComponent(userLocation.lat) +
+      '&lon=' + encodeURIComponent(userLocation.lon) +
+      '&dist=' + AIRCRAFT_RADIUS_NM;
 
-    const response = await fetch(url, {
-      method: 'GET',
-      cache: 'no-store',
-      headers: {
-        Accept: 'application/json'
-      }
-    });
-
-    if (!response.ok) {
-      throw new Error(
-        'خطای سرویس پرواز: HTTP ' + response.status
-      );
-    }
-
-    const data = await response.json();
+    const data = await fetchAircraftData(url);
 
     if (!data || !Array.isArray(data.ac)) {
       throw new Error('ساختار اطلاعات پرواز معتبر نیست.');
@@ -1040,7 +1079,11 @@ async function fetchAircraft() {
 
       if (!icao ||
           !Number.isFinite(lat) ||
-          !Number.isFinite(lon)) return;
+          !Number.isFinite(lon) ||
+          lat < -90 || lat > 90 ||
+          lon < -180 || lon > 180) {
+        return;
+      }
 
       if (item.alt_baro === 'ground' || item.gnd === true) {
         return;
@@ -1051,7 +1094,9 @@ async function fetchAircraft() {
       );
 
       if (Number.isFinite(seenPosition) &&
-          seenPosition > 120) return;
+          seenPosition > 120) {
+        return;
+      }
 
       const distance = aircraftDistanceKm(
         userLocation.lat,
@@ -1069,7 +1114,8 @@ async function fetchAircraft() {
         lat,
         lon,
         callsign: String(item.flight || '').trim(),
-        country: String(item.r || item.t || ''),
+        registration: String(item.r || ''),
+        aircraftType: String(item.desc || item.t || ''),
         altitude: Number.isFinite(altitudeValue)
           ? altitudeValue * 0.3048
           : null,
@@ -1086,7 +1132,7 @@ async function fetchAircraft() {
       });
     });
 
-    // Update existing markers and create new ones.
+    // Update and create markers
 
     fresh.forEach(plane => {
       let marker = aircraftMarkers.get(plane.icao);
@@ -1103,14 +1149,8 @@ async function fetchAircraft() {
         aircraftMarkers.set(plane.icao, marker);
 
       } else {
-        marker.setLatLng([
-          plane.lat,
-          plane.lon
-        ]);
-
-        marker.setIcon(
-          createAircraftIcon(plane.heading)
-        );
+        marker.setLatLng([plane.lat, plane.lon]);
+        marker.setIcon(createAircraftIcon(plane.heading));
       }
 
       marker.bindPopup(aircraftPopup(plane));
@@ -1124,7 +1164,7 @@ async function fetchAircraft() {
       );
     });
 
-    // Remove old aircraft markers.
+    // Remove old markers only after successful response
 
     for (const [icao, marker] of aircraftMarkers) {
       if (!fresh.has(icao)) {
@@ -1133,23 +1173,48 @@ async function fetchAircraft() {
       }
     }
 
-    const count = document.getElementById('aircraftCount');
+    aircraftLastSuccess = Date.now();
 
-    if (count) {
-      count.textContent =
-        'تعداد هواپیماهای قابل مشاهده: ' + fresh.size;
+    setAircraftCount(fresh.size);
+
+    if (fresh.size === 0) {
+      setAircraftStatus(
+        'دریافت موفق بود؛ هواپیمای فعالی در محدوده پیدا نشد.'
+      );
+    } else {
+      setAircraftStatus(
+        'دریافت موفق | ' +
+        new Date().toLocaleTimeString('fa-IR')
+      );
     }
 
-    setAircraftStatus(
-      'آخرین بروزرسانی: ' +
-      new Date().toLocaleTimeString('fa-IR')
+    console.log(
+      'Aircraft received:',
+      fresh.size,
+      'Last update:',
+      aircraftLastSuccess
     );
 
   } catch (error) {
     console.error('Aircraft tracking error:', error);
 
+    let message = error.message || 'خطای نامشخص';
+
+    if (message.includes('HTTP 502')) {
+      message = 'سرور دریافت پروازها موقتاً پاسخگو نیست (502).';
+    } else if (message.includes('HTTP 503')) {
+      message = 'سرویس پرواز موقتاً در دسترس نیست (503).';
+    } else if (message.includes('HTTP 504')) {
+      message = 'زمان پاسخ سرور تمام شد (504).';
+    } else if (message.includes('Failed to fetch')) {
+      message = 'ارتباط با سرور برقرار نشد؛ اینترنت یا CORS را بررسی کنید.';
+    }
+
     setAircraftStatus(
-      'خطا: ' + error.message
+      message + ' | ' +
+      (aircraftMarkers.size
+        ? 'نشانگرهای قبلی حفظ شدند.'
+        : 'هنوز پروازی نمایش داده نشده است.')
     );
 
   } finally {
@@ -1161,6 +1226,7 @@ async function fetchAircraft() {
 
     if (currentButton) {
       currentButton.disabled = false;
+      currentButton.textContent = 'بروزرسانی پروازها';
     }
   }
 }
@@ -1173,21 +1239,15 @@ window.fetchAircraft = fetchAircraft;
 
 loadSatellites();
 
-// Satellite position update every 5 seconds
-
 setInterval(
   updateSatellitePositions,
   5000
 );
 
-// Refresh satellite TLE every 30 minutes
-
 setInterval(
   loadSatellites,
   30 * 60 * 1000
 );
-
-// Refresh aircraft every 20 seconds
 
 setInterval(() => {
   if (userLocation) {
@@ -1202,4 +1262,3 @@ console.log(
 console.log(
   '✈️ Aircraft Tracking Loaded Successfully'
 );
-
