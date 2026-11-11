@@ -53,9 +53,10 @@ app.get('/api/aircraft', async (req, res) => {
 
   try {
     const upstream =
-      'https://api.adsb.lol/v2/lat/' + encodeURIComponent(lat) +
-      '/lon/' + encodeURIComponent(lon) +
-      '/dist/' + encodeURIComponent(Math.round(dist));
+    
+      'https://api.adsb.lol/v2/point/' + encodeURIComponent(lat) +
+'/' + encodeURIComponent(lon) +
+'/' + encodeURIComponent(Math.round(dist));  
 
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 12000);
