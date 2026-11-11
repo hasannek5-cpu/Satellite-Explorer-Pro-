@@ -845,7 +845,19 @@ function renderSatelliteCommunication() {
 
 // =====================================================
 // =====================================================
+
+// =====================================================
 // 19. LIVE AIRCRAFT TRACKING
+// =====================================================
+
+const AIRCRAFT_RADIUS_NM = 250;
+const AIRCRAFT_REFRESH_MS = 20000;
+
+const aircraftLayer = L.layerGroup().addTo(map);
+const aircraftMarkers = new Map();
+
+let aircraftFetchBusy = false;
+
 // =====================================================
 
 const AIRCRAFT_RADIUS_NM = 250;
