@@ -15,7 +15,7 @@ if (typeof satellite === 'undefined') {
 
 // 1. MAP
 
-const map = L.map('map').setView([25, 15], 2);
+const map = window.map = L.map('map').setView([25, 15], 2);
 
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
   attribution: '© OpenStreetMap'
