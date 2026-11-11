@@ -1637,3 +1637,110 @@ window.updateAircraftMarkers = function (flights) {
         }
     });
 };
+
+JavaScript
+
+/* =====================================================
+   ✈️ LIVE AIRCRAFT TRACKING - FINAL
+   ===================================================== */
+
+(() => {
+  "use strict";
+
+  if (typeof L === "undefined" || typeof map === "undefined") {
+    console.error("Leaflet map unavailable");
+    return;
+  }
+
+  const aircraftLayer = L.layerGroup().addTo(map);
+  const aircraftMarkers = new Map();
+
+  const planeIcon = heading => L.divIcon({
+    className: "live-plane-icon",
+    html: `<div style="
+      font-size:25px;
+      color:#ffcc00;
+      transform:rotate(${heading}deg);
+      text-shadow:0 0 5px #000;
+      text-align:center;">✈️</div>`,
+    iconSize:[30,30],
+    iconAnchor:[15,15]
+  });
+
+  async function refreshAircraft() {
+    try {
+      const b = map.getBounds();
+
+      const url = new URL(
+        "https://opensky-network.org/api/states/all"
+      );
+
+      url.searchParams.set("lamin", b.getSouth());
+      url.searchParams.set("lamax", b.getNorth());
+      url.searchParams.set("lomin", b.getWest());
+      url.searchParams.set("lomax", b.getEast());
+
+      const response = await fetch(url);
+
+      if (!response.ok) {
+        throw new Error("OpenSky HTTP " + response.status);
+      }
+
+      const data = await response.json();
+      const states = data.states || [];
+      const seen = new Set();
+
+      states.forEach(s => {
+        const id = s[0];
+        const callsign = (s[1] || id).trim();
+        const lon = s[5];
+        const lat = s[6];
+        const altitude = s[7];
+        const heading = s[10] || 0;
+        const velocity = s[9] || 0;
+
+        if (!id || lat == null || lon == null || s[8]) return;
+
+        seen.add(id);
+
+        const position = [lat, lon];
+        const popup = `
+          <b>✈️ ${callsign}</b><br>
+          ارتفاع: ${Math.round(altitude || 0)} متر<br>
+          سرعت: ${Math.round(velocity * 3.6)} km/h<br>
+          جهت: ${Math.round(heading)}°
+        `;
+
+        if (aircraftMarkers.has(id)) {
+          const marker = aircraftMarkers.get(id);
+          marker.setLatLng(position);
+          marker.setIcon(planeIcon(heading));
+          marker.setPopupContent(popup);
+        } else {
+          const marker = L.marker(position, {
+            icon: planeIcon(heading)
+          }).bindPopup(popup);
+
+          marker.addTo(aircraftLayer);
+          aircraftMarkers.set(id, marker);
+        }
+      });
+
+      aircraftMarkers.forEach((marker, id) => {
+        if (!seen.has(id)) {
+          aircraftLayer.removeLayer(marker);
+          aircraftMarkers.delete(id);
+        }
+      });
+
+      console.log("Aircraft updated:", seen.size);
+
+    } catch (error) {
+      console.error("Aircraft update failed:", error);
+    }
+  }
+
+  refreshAircraft();
+  setInterval(refreshAircraft, 20000);
+
+})();
