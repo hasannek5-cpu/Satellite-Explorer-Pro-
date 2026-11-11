@@ -845,13 +845,6 @@ function renderSatelliteCommunication() {
 
 // =====================================================
 // 19. LIVE AIRCRAFT TRACKING
-    const url =
-      'https://satellite-explorer-pro.onrender.com/api/aircraft?lat=' +
-      encodeURIComponent(userLocation.lat) +
-      '&lon=' +
-      encodeURIComponent(userLocation.lon) +
-      '&dist=' +
-      AIRCRAFT_RADIUS_NM;
 
 // =====================================================
 
