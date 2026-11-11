@@ -1,24 +1,24 @@
 {
-  "id": "/Satellite-Explorer-Pro1/",
+  "id": "/Satellite-Explorer-Pro/",
   "name": "کاوشگر ماهواره غیرنظامی",
   "short_name": "کاوشگر ماهواره",
   "description": "سامانه حرفه‌ای نمایش نقشه و بررسی ماهواره‌های غیرنظامی",
   "lang": "fa",
   "dir": "rtl",
-  "start_url": "/Satellite-Explorer-Pro1/",
-  "scope": "/Satellite-Explorer-Pro1/",
+  "start_url": "/Satellite-Explorer-Pro/",
+  "scope": "/Satellite-Explorer-Pro/",
   "display": "standalone",
   "orientation": "portrait",
   "background_color": "#071426",
   "theme_color": "#071426",
   "icons": [
     {
-      "src": "/Satellite-Explorer-Pro1/icon-192.png",
+      "src": "/Satellite-Explorer-Pro/icon-192.png",
       "sizes": "192x192",
       "type": "image/png"
     },
     {
-      "src": "/Satellite-Explorer-Pro1/icon-512.png",
+      "src": "/Satellite-Explorer-Pro/icon-512.png",
       "sizes": "512x512",
       "type": "image/png"
     }
