@@ -1584,3 +1584,56 @@ console.log(
 console.log(
   '✈️ Aircraft Tracking Loaded Successfully'
 );
+
+/* ✈️ اصلاح نشانگر هواپیماها */
+window.aircraftMarkers = window.aircraftMarkers || {};
+
+window.updateAircraftMarkers = function (flights) {
+    if (typeof L === "undefined" || !window.map) {
+        console.error("نقشه Leaflet در دسترس نیست");
+        return;
+    }
+
+    const active = new Set();
+
+    flights.forEach(f => {
+        const lat = Number(f.lat ?? f.latitude);
+        const lon = Number(f.lon ?? f.lng ?? f.longitude);
+        const id = String(f.id ?? f.icao24 ?? f.callsign ?? "");
+
+        if (!id || !Number.isFinite(lat) || !Number.isFinite(lon)) return;
+        if (lat < -90 || lat > 90 || lon < -180 || lon > 180) return;
+
+        active.add(id);
+
+        const heading = Number(f.heading ?? f.track ?? 0);
+        const icon = L.divIcon({
+            className: "aircraft-icon",
+            html: `<div style="transform:rotate(${heading}deg);font-size:24px;color:#ffcc00;text-shadow:0 0 5px #000">✈</div>`,
+            iconSize: [30,30],
+            iconAnchor: [15,15]
+        });
+
+        if (aircraftMarkers[id]) {
+            aircraftMarkers[id].setLatLng([lat,lon]);
+            aircraftMarkers[id].setIcon(icon);
+        } else {
+            aircraftMarkers[id] = L.marker([lat,lon], {
+                icon,
+                zIndexOffset: 1000
+            }).addTo(map);
+        }
+
+        aircraftMarkers[id].bindTooltip(
+            `${f.callsign || id} | ${Math.round(Number(f.altitude ?? f.alt ?? 0))} متر`,
+            {direction:"top"}
+        );
+    });
+
+    Object.keys(aircraftMarkers).forEach(id => {
+        if (!active.has(id)) {
+            map.removeLayer(aircraftMarkers[id]);
+            delete aircraftMarkers[id];
+        }
+    });
+};
