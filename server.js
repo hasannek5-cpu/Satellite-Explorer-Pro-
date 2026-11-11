@@ -5,42 +5,24 @@ const cors = require('cors');
 const app = express();
 const PORT = process.env.PORT || 10000;
 
-const ALLOWED_ORIGINS = new Set([
-  'https://hasannek5-cpu.github.io'
-]);
-
-const CACHE_DURATION = 10000;
-const REQUEST_TIMEOUT = 12000;
-
 app.disable('x-powered-by');
 
 app.use(cors({
   origin(origin, callback) {
-    if (!origin || ALLOWED_ORIGINS.has(origin)) {
+    if (
+      !origin ||
+      origin === 'https://hasannek5-cpu.github.io'
+    ) {
       return callback(null, true);
     }
-    return callback(new Error('Origin not allowed by CORS'));
+    callback(new Error('Origin not allowed by CORS'));
   },
   methods: ['GET'],
   allowedHeaders: ['Accept']
 }));
 
-app.get('/', (_req, res) => {
-  res.json({
-    ok: true,
-    service: 'Satellite Explorer Aircraft Proxy',
-    version: '2.0',
-    endpoint: '/api/aircraft?lat=52.52&lon=13.405&dist=250',
-    providers: ['adsb.lol', 'airplanes.live', 'adsb.fi']
-  });
-});
-
-app.get('/health', (_req, res) => {
-  res.json({
-    ok: true,
-    service: 'aircraft-proxy'
-  });
-});
+const TIMEOUT = 8000;
+const CACHE_TIME = 10000;
 
 let cache = {
   key: '',
@@ -48,19 +30,28 @@ let cache = {
   data: null
 };
 
-async function fetchProvider(url, name) {
-  const controller = new AbortController();
+app.get('/', (req, res) => {
+  res.json({
+    ok: true,
+    service: 'Satellite Explorer Aircraft Proxy',
+    version: '3.0',
+    endpoint: '/api/aircraft?lat=52.52&lon=13.405&dist=250'
+  });
+});
 
-  const timeout = setTimeout(() => {
-    controller.abort();
-  }, REQUEST_TIMEOUT);
+app.get('/health', (req, res) => {
+  res.json({ ok: true });
+});
+
+async function getAircraft(url, provider) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), TIMEOUT);
 
   try {
     const response = await fetch(url, {
-      method: 'GET',
       headers: {
         Accept: 'application/json',
-        'User-Agent': 'SatelliteExplorer/2.0'
+        'User-Agent': 'SatelliteExplorer/3.0'
       },
       signal: controller.signal
     });
@@ -69,31 +60,31 @@ async function fetchProvider(url, name) {
       throw new Error('HTTP ' + response.status);
     }
 
-    const data = await response.json();
+    const json = await response.json();
 
-    if (!data || !Array.isArray(data.ac)) {
-      throw new Error('Invalid aircraft response');
+    // Normalize different provider response formats
+    let aircraft = [];
+
+    if (Array.isArray(json.ac)) {
+      aircraft = json.ac;
+    } else if (Array.isArray(json.aircraft)) {
+      aircraft = json.aircraft;
+    } else {
+      throw new Error('Unknown response format');
     }
 
     console.log(
-      '[AIRCRAFT] Provider:',
-      name,
-      '| Aircraft:',
-      data.ac.length
+      '[AIRCRAFT] ' + provider +
+      ' returned ' + aircraft.length + ' aircraft'
     );
 
-    return data;
-
-  } catch (error) {
-    console.error(
-      '[AIRCRAFT] ' + name + ' failed:',
-      error.message
-    );
-
-    throw error;
+    return {
+      aircraft,
+      provider
+    };
 
   } finally {
-    clearTimeout(timeout);
+    clearTimeout(timer);
   }
 }
 
@@ -111,7 +102,7 @@ app.get('/api/aircraft', async (req, res) => {
     dist < 1 || dist > 250
   ) {
     return res.status(400).json({
-      error: 'Invalid coordinates or distance. dist must be 1..250.'
+      error: 'Invalid coordinates or distance'
     });
   }
 
@@ -128,7 +119,6 @@ app.get('/api/aircraft', async (req, res) => {
     cache.expires > Date.now() &&
     cache.data
   ) {
-    res.set('Cache-Control', 'no-store');
     return res.json(cache.data);
   }
 
@@ -136,20 +126,17 @@ app.get('/api/aircraft', async (req, res) => {
     {
       name: 'adsb.lol',
       url:
-        'https://api.adsb.lol/v2/point/' +
-        lat + '/' + lon + '/' + radius
+        `https://api.adsb.lol/v2/point/${lat}/${lon}/${radius}`
     },
     {
       name: 'airplanes.live',
       url:
-        'https://api.airplanes.live/v2/point/' +
-        lat + '/' + lon + '/' + radius
+        `https://api.airplanes.live/v2/point/${lat}/${lon}/${radius}`
     },
     {
       name: 'adsb.fi',
       url:
-        'https://opendata.adsb.fi/api/v3/lat/' +
-        lat + '/lon/' + lon + '/dist/' + radius
+        `https://opendata.adsb.fi/api/v3/lat/${lat}/lon/${lon}/dist/${radius}`
     }
   ];
 
@@ -157,69 +144,74 @@ app.get('/api/aircraft', async (req, res) => {
 
   for (const provider of providers) {
     try {
-      const data = await fetchProvider(
+      const result = await getAircraft(
         provider.url,
         provider.name
       );
 
-      const result = {
-        ...data,
-        ac: data.ac.filter(plane =>
+      const aircraft = result.aircraft
+        .filter(plane =>
           Number.isFinite(Number(plane.lat)) &&
           Number.isFinite(Number(plane.lon)) &&
-          Number(plane.lat) >= -90 &&
-          Number(plane.lat) <= 90 &&
-          Number(plane.lon) >= -180 &&
-          Number(plane.lon) <= 180
-        ),
-        source: provider.name
+          plane.lat !== null &&
+          plane.lon !== null
+        );
+
+      const output = {
+        ac: aircraft,
+        total: aircraft.length,
+        source: provider.name,
+        msg: 'No error',
+        now: Date.now()
       };
 
       cache = {
         key,
-        expires: Date.now() + CACHE_DURATION,
-        data: result
+        expires: Date.now() + CACHE_TIME,
+        data: output
       };
 
       res.set('Cache-Control', 'no-store');
 
-      return res.json(result);
+      return res.json(output);
 
     } catch (error) {
+      console.error(
+        '[AIRCRAFT ERROR]',
+        provider.name,
+        error.message
+      );
+
       errors.push({
         provider: provider.name,
-        error: error.message
+        error: error.name === 'AbortError'
+          ? 'Timeout'
+          : error.message
       });
     }
   }
 
-  console.error(
-    '[AIRCRAFT] All providers failed:',
-    JSON.stringify(errors)
-  );
-
   return res.status(502).json({
+    ok: false,
     error: 'Could not retrieve aircraft data',
-    details: errors
+    providers: errors
   });
 });
 
-app.use((err, _req, res, _next) => {
-  console.error('[SERVER ERROR]', err.message);
+app.use((err, req, res, next) => {
+  console.error('[SERVER]', err.message);
 
-  if (err.message === 'Origin not allowed by CORS') {
-    return res.status(403).json({
-      error: 'Origin not allowed'
-    });
-  }
-
-  return res.status(500).json({
-    error: 'Internal server error'
+  res.status(
+    err.message === 'Origin not allowed by CORS'
+      ? 403
+      : 500
+  ).json({
+    error: err.message
   });
 });
 
 app.listen(PORT, '0.0.0.0', () => {
   console.log(
-    'Satellite Explorer Aircraft Proxy listening on port ' + PORT
+    'Satellite Explorer Aircraft Proxy running on ' + PORT
   );
 });
