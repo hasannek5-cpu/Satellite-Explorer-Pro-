@@ -1,9 +1,10 @@
 
 /* =====================================================
    🛰️ SATELLITE EXPLORER PRO
+   COMPLETE INTEGRATED VERSION
    GPS + SATELLITES + ORBIT + PASS PREDICTION
    RADIO INFORMATION + LIVE AIRCRAFT
-   COMPLETE FIXED VERSION
+   AUTO MAP CENTER + AUTO REFRESH
    ===================================================== */
 
 if (typeof L === 'undefined') {
@@ -14,7 +15,9 @@ if (typeof satellite === 'undefined') {
   throw new Error('satellite.js بارگذاری نشده است.');
 }
 
+// =====================================================
 // 1. MAP
+// =====================================================
 
 const map = window.map = L.map('map').setView([25, 15], 2);
 
@@ -32,7 +35,9 @@ let selectedNorad = null;
 let userLocation = null;
 let passSearchBusy = false;
 
+// =====================================================
 // 2. SATELLITE GROUPS
+// =====================================================
 
 const SATELLITE_GROUPS = [
   'stations', 'weather', 'noaa', 'goes',
@@ -40,7 +45,9 @@ const SATELLITE_GROUPS = [
   'education', 'amateur'
 ];
 
+// =====================================================
 // 3. RADIO DATABASE
+// =====================================================
 
 const RADIO_DATABASE = {
   "25544": {
@@ -64,7 +71,9 @@ const RADIO_DATABASE = {
   }
 };
 
+// =====================================================
 // 4. GENERAL FUNCTIONS
+// =====================================================
 
 function escapeHTML(value) {
   return String(value).replace(/[&<>"']/g, c => ({
@@ -94,7 +103,9 @@ function showTab(tab) {
 
 window.showTab = showTab;
 
+// =====================================================
 // 5. TLE PARSER
+// =====================================================
 
 function parseTLE(content, group) {
   const lines = content.split(/\r?\n/)
@@ -141,7 +152,9 @@ function parseTLE(content, group) {
   return result;
 }
 
+// =====================================================
 // 6. LOAD SATELLITES
+// =====================================================
 
 async function loadSatellites() {
   const details = document.getElementById('details');
@@ -221,7 +234,9 @@ async function loadSatellites() {
   }
 }
 
+// =====================================================
 // 7. SATELLITE POSITION
+// =====================================================
 
 function getSatellitePosition(sat, date) {
   const result = satellite.propagate(sat.satrec, date);
@@ -276,7 +291,9 @@ function updateSatellitePositions() {
   updateSelectedSatellite();
 }
 
+// =====================================================
 // 8. SATELLITE MARKERS
+// =====================================================
 
 function updateMarkers() {
   satellitesData.forEach(sat => {
@@ -322,7 +339,9 @@ function updateMarkers() {
   }
 }
 
+// =====================================================
 // 9. ORBIT PATH
+// =====================================================
 
 function drawSatellitePath(norad) {
   pathLayer.clearLayers();
@@ -369,7 +388,9 @@ function drawSatellitePath(norad) {
   pathLayer.bringToFront();
 }
 
+// =====================================================
 // 10. SELECT SATELLITE
+// =====================================================
 
 function showSatelliteInfo(norad) {
   const sat = satellitesData.find(
@@ -385,7 +406,9 @@ function showSatelliteInfo(norad) {
 
 window.showSatelliteInfo = showSatelliteInfo;
 
+// =====================================================
 // 11. SATELLITE DETAILS
+// =====================================================
 
 function updateSelectedSatellite() {
   if (!selectedNorad) return;
@@ -422,7 +445,9 @@ function updateSelectedSatellite() {
   renderSatelliteCommunication();
 }
 
+// =====================================================
 // 12. SATELLITE LIST
+// =====================================================
 
 function renderSatelliteList() {
   const list = document.getElementById('satelliteList');
@@ -448,7 +473,9 @@ function renderSatelliteList() {
   });
 }
 
+// =====================================================
 // 13. GPS
+// =====================================================
 
 function getLocation() {
   const output = document.getElementById('location');
@@ -477,7 +504,9 @@ function getLocation() {
         'عرض جغرافیایی: ' + lat.toFixed(5) +
         '<br>طول جغرافیایی: ' + lon.toFixed(5);
 
-      if (userMarker) map.removeLayer(userMarker);
+      if (userMarker) {
+        map.removeLayer(userMarker);
+      }
 
       userMarker = L.marker([lat, lon])
         .addTo(map)
@@ -485,8 +514,10 @@ function getLocation() {
         .openPopup();
 
       map.setView([lat, lon], 7);
+
       showTab('map');
 
+      // Aircraft will be fetched after map movement ends.
       fetchAircraft();
     },
 
@@ -507,7 +538,9 @@ function getLocation() {
 
 window.getLocation = getLocation;
 
+// =====================================================
 // 14. PASS PANEL
+// =====================================================
 
 function getPassPanel() {
   let panel = document.getElementById('passDetails');
@@ -528,7 +561,9 @@ function getPassPanel() {
   return panel;
 }
 
+// =====================================================
 // 15. SATELLITE LOOK ANGLES
+// =====================================================
 
 function calculateLook(sat, timestamp) {
   if (!userLocation) return null;
@@ -562,7 +597,9 @@ function calculateLook(sat, timestamp) {
   return { elevation, azimuth, range };
 }
 
+// =====================================================
 // 16. REFINE PASS BOUNDARY
+// =====================================================
 
 function refinePassBoundary(sat, left, right) {
   let low = left;
@@ -589,7 +626,9 @@ function refinePassBoundary(sat, left, right) {
   return new Date((low + high) / 2);
 }
 
+// =====================================================
 // 17. PASS PREDICTION
+// =====================================================
 
 function predictSatellitePass(norad) {
   const panel = getPassPanel();
@@ -751,7 +790,9 @@ function predictSatellitePass(norad) {
 
 window.predictSatellitePass = predictSatellitePass;
 
+// =====================================================
 // 18. RADIO INFORMATION
+// =====================================================
 
 function renderSatelliteCommunication() {
   const details = document.getElementById('details');
@@ -843,12 +884,15 @@ function renderSatelliteCommunication() {
 }
 
 // =====================================================
-// 19. LIVE AIRCRAFT TRACKING - FIXED
+// 19. LIVE AIRCRAFT TRACKING PRO
+// MAP CENTER + GPS + AUTO REFRESH
 // =====================================================
 
-const AIRCRAFT_RADIUS_NM = 250;
 const AIRCRAFT_REFRESH_MS = 20000;
 const AIRCRAFT_TIMEOUT_MS = 20000;
+
+const AIRCRAFT_MAX_RADIUS_NM = 250;
+const AIRCRAFT_MIN_RADIUS_NM = 25;
 
 const AIRCRAFT_API =
   'https://satellite-explorer-pro.onrender.com/api/aircraft';
@@ -857,7 +901,11 @@ const aircraftLayer = L.layerGroup().addTo(map);
 const aircraftMarkers = new Map();
 
 let aircraftFetchBusy = false;
+let aircraftFetchPending = false;
 let aircraftLastSuccess = 0;
+let aircraftMoveTimer = null;
+
+// Distance calculation
 
 function aircraftDistanceKm(lat1, lon1, lat2, lon2) {
   const R = 6371;
@@ -874,6 +922,54 @@ function aircraftDistanceKm(lat1, lon1, lat2, lon2) {
   return 2 * R * Math.atan2(
     Math.sqrt(a),
     Math.sqrt(1 - a)
+  );
+}
+
+// Get map center
+
+function getAircraftCenter() {
+  const center = map.getCenter();
+
+  return {
+    lat: center.lat,
+    lon: center.lng
+  };
+}
+
+// Calculate radius from visible map area
+
+function getAircraftRadius() {
+  const bounds = map.getBounds();
+  const center = map.getCenter();
+
+  const corners = [
+    bounds.getNorthWest(),
+    bounds.getNorthEast(),
+    bounds.getSouthWest(),
+    bounds.getSouthEast()
+  ];
+
+  let maxDistance = 0;
+
+  corners.forEach(point => {
+    const distance = aircraftDistanceKm(
+      center.lat,
+      center.lon,
+      point.lat,
+      point.lng
+    );
+
+    maxDistance = Math.max(maxDistance, distance);
+  });
+
+  const radiusNM = maxDistance / 1.852;
+
+  return Math.max(
+    AIRCRAFT_MIN_RADIUS_NM,
+    Math.min(
+      AIRCRAFT_MAX_RADIUS_NM,
+      Math.ceil(radiusNM)
+    )
   );
 }
 
@@ -896,11 +992,22 @@ aircraftControl.onAdd = function () {
 
   box.innerHTML = `
     <b>✈️ پروازهای زنده</b>
+
     <div id="aircraftStatus">
-      ابتدا موقعیت GPS را دریافت کنید
+      در حال آماده‌سازی دریافت پروازها...
     </div>
-    <div id="aircraftCount">تعداد هواپیماهای قابل مشاهده: ۰</div>
-    <button id="aircraftRefreshButton" type="button"
+
+    <div id="aircraftCount">
+      تعداد هواپیماهای قابل مشاهده: ۰
+    </div>
+
+    <div id="aircraftCenterInfo"
+      style="font-size:11px;color:#55dfff;margin-top:5px">
+      مرکز نقشه
+    </div>
+
+    <button id="aircraftRefreshButton"
+      type="button"
       style="width:100%;padding:8px;margin-top:7px;
       border:0;border-radius:8px;background:#087cf0;
       color:white;font-weight:bold">
@@ -922,8 +1029,11 @@ aircraftControl.onAdd = function () {
 
 aircraftControl.addTo(map);
 
+// Status
+
 function setAircraftStatus(message) {
   const el = document.getElementById('aircraftStatus');
+
   if (el) el.textContent = message;
 }
 
@@ -936,6 +1046,17 @@ function setAircraftCount(value) {
   }
 }
 
+function updateAircraftCenterInfo(center) {
+  const el = document.getElementById('aircraftCenterInfo');
+
+  if (el) {
+    el.textContent =
+      'مرکز نقشه: ' +
+      center.lat.toFixed(3) + ' , ' +
+      center.lon.toFixed(3);
+  }
+}
+
 // Airplane icon
 
 function createAircraftIcon(heading) {
@@ -943,6 +1064,7 @@ function createAircraftIcon(heading) {
 
   return L.divIcon({
     className: 'aircraft-icon',
+
     html: `
       <div style="
         width:34px;height:34px;
@@ -951,10 +1073,9 @@ function createAircraftIcon(heading) {
         font-size:25px;
         transform:rotate(${direction}deg);
         filter:drop-shadow(0 2px 3px #000);
-        color:#ffcc00">
-        ✈️
-      </div>
+      ">✈️</div>
     `,
+
     iconSize: [34, 34],
     iconAnchor: [17, 17]
   });
@@ -985,7 +1106,7 @@ function aircraftPopup(plane) {
       <p>ارتفاع: ${altitude}</p>
       <p>سرعت: ${speed}</p>
       <p>جهت حرکت: ${heading}</p>
-      <p>فاصله از GPS: ${plane.distance.toFixed(1)} کیلومتر</p>
+      <p>فاصله از مرکز نقشه: ${plane.distance.toFixed(1)} کیلومتر</p>
       <p>آخرین مشاهده موقعیت: ${plane.seenPosition.toFixed(1)} ثانیه قبل</p>
     </div>
   `;
@@ -1019,7 +1140,9 @@ async function fetchAircraftData(url) {
 
   } catch (error) {
     if (error.name === 'AbortError') {
-      throw new Error('مهلت دریافت اطلاعات تمام شد؛ سرور پاسخ نداد.');
+      throw new Error(
+        'مهلت دریافت اطلاعات تمام شد؛ سرور پاسخ نداد.'
+      );
     }
 
     throw error;
@@ -1032,19 +1155,24 @@ async function fetchAircraftData(url) {
 // Main aircraft fetch
 
 async function fetchAircraft() {
-  if (aircraftFetchBusy) return;
 
-  if (!userLocation ||
-      !Number.isFinite(userLocation.lat) ||
-      !Number.isFinite(userLocation.lon)) {
-    setAircraftStatus('ابتدا دکمه موقعیت من را بزنید.');
+  if (aircraftFetchBusy) {
+    aircraftFetchPending = true;
     return;
   }
 
   aircraftFetchBusy = true;
+  aircraftFetchPending = false;
 
-  setAircraftStatus('در حال دریافت پروازهای اطراف شما...');
-  
+  const center = getAircraftCenter();
+  const radius = getAircraftRadius();
+
+  updateAircraftCenterInfo(center);
+
+  setAircraftStatus(
+    'در حال دریافت پروازهای محدوده نقشه...'
+  );
+
   const button = document.getElementById(
     'aircraftRefreshButton'
   );
@@ -1055,21 +1183,27 @@ async function fetchAircraft() {
   }
 
   try {
+
     const url =
       AIRCRAFT_API +
-      '?lat=' + encodeURIComponent(userLocation.lat) +
-      '&lon=' + encodeURIComponent(userLocation.lon) +
-      '&dist=' + AIRCRAFT_RADIUS_NM;
+      '?lat=' + encodeURIComponent(center.lat) +
+      '&lon=' + encodeURIComponent(center.lon) +
+      '&dist=' + radius;
 
     const data = await fetchAircraftData(url);
 
+    // Validate response
+
     if (!data || !Array.isArray(data.ac)) {
-      throw new Error('ساختار اطلاعات پرواز معتبر نیست.');
+      throw new Error(
+        'ساختار اطلاعات پرواز معتبر نیست.'
+      );
     }
 
     const fresh = new Map();
 
     data.ac.forEach(item => {
+
       const icao = String(item.hex || '')
         .trim()
         .toLowerCase();
@@ -1077,15 +1211,20 @@ async function fetchAircraft() {
       const lat = Number(item.lat);
       const lon = Number(item.lon);
 
-      if (!icao ||
-          !Number.isFinite(lat) ||
-          !Number.isFinite(lon) ||
-          lat < -90 || lat > 90 ||
-          lon < -180 || lon > 180) {
+      if (
+        !icao ||
+        !Number.isFinite(lat) ||
+        !Number.isFinite(lon) ||
+        lat < -90 || lat > 90 ||
+        lon < -180 || lon > 180
+      ) {
         return;
       }
 
-      if (item.alt_baro === 'ground' || item.gnd === true) {
+      if (
+        item.alt_baro === 'ground' ||
+        item.gnd === true
+      ) {
         return;
       }
 
@@ -1093,51 +1232,69 @@ async function fetchAircraft() {
         item.seen_pos ?? item.seen ?? 0
       );
 
-      if (Number.isFinite(seenPosition) &&
-          seenPosition > 120) {
+      if (
+        Number.isFinite(seenPosition) &&
+        seenPosition > 120
+      ) {
         return;
       }
 
       const distance = aircraftDistanceKm(
-        userLocation.lat,
-        userLocation.lon,
+        center.lat,
+        center.lon,
         lat,
         lon
       );
 
-      const altitudeValue = Number(item.alt_baro);
-      const speedKnots = Number(item.gs);
-      const headingValue = Number(item.track);
+      const altitudeValue =
+        item.alt_baro == null ||
+        item.alt_baro === 'ground'
+          ? NaN
+          : Number(item.alt_baro);
+
+      const speedKnots =
+        item.gs == null ? NaN : Number(item.gs);
+
+      const headingValue =
+        item.track == null ? NaN : Number(item.track);
 
       fresh.set(icao, {
         icao,
         lat,
         lon,
+
         callsign: String(item.flight || '').trim(),
         registration: String(item.r || ''),
         aircraftType: String(item.desc || item.t || ''),
+
         altitude: Number.isFinite(altitudeValue)
           ? altitudeValue * 0.3048
           : null,
+
         speedKmh: Number.isFinite(speedKnots)
           ? speedKnots * 1.852
           : null,
+
         heading: Number.isFinite(headingValue)
           ? headingValue
           : null,
+
         distance,
+
         seenPosition: Number.isFinite(seenPosition)
           ? seenPosition
           : 0
       });
     });
 
-    // Update and create markers
+    // Update or create aircraft markers
 
     fresh.forEach(plane => {
+
       let marker = aircraftMarkers.get(plane.icao);
 
       if (!marker) {
+
         marker = L.marker(
           [plane.lat, plane.lon],
           {
@@ -1149,11 +1306,20 @@ async function fetchAircraft() {
         aircraftMarkers.set(plane.icao, marker);
 
       } else {
-        marker.setLatLng([plane.lat, plane.lon]);
-        marker.setIcon(createAircraftIcon(plane.heading));
+
+        marker.setLatLng([
+          plane.lat,
+          plane.lon
+        ]);
+
+        marker.setIcon(
+          createAircraftIcon(plane.heading)
+        );
       }
 
-      marker.bindPopup(aircraftPopup(plane));
+      marker.bindPopup(
+        aircraftPopup(plane)
+      );
 
       marker.bindTooltip(
         escapeHTML(plane.callsign || plane.icao),
@@ -1167,6 +1333,7 @@ async function fetchAircraft() {
     // Remove old markers only after successful response
 
     for (const [icao, marker] of aircraftMarkers) {
+
       if (!fresh.has(icao)) {
         aircraftLayer.removeLayer(marker);
         aircraftMarkers.delete(icao);
@@ -1178,36 +1345,55 @@ async function fetchAircraft() {
     setAircraftCount(fresh.size);
 
     if (fresh.size === 0) {
+
       setAircraftStatus(
         'دریافت موفق بود؛ هواپیمای فعالی در محدوده پیدا نشد.'
       );
+
     } else {
+
       setAircraftStatus(
         'دریافت موفق | ' +
-        new Date().toLocaleTimeString('fa-IR')
+        new Date().toLocaleTimeString('fa-IR') +
+        ' | شعاع: ' + radius + ' مایل دریایی'
       );
     }
 
     console.log(
       'Aircraft received:',
       fresh.size,
+      'Center:',
+      center,
+      'Radius:',
+      radius,
       'Last update:',
       aircraftLastSuccess
     );
 
   } catch (error) {
-    console.error('Aircraft tracking error:', error);
+
+    console.error(
+      'Aircraft tracking error:',
+      error
+    );
 
     let message = error.message || 'خطای نامشخص';
 
     if (message.includes('HTTP 502')) {
-      message = 'سرور دریافت پروازها موقتاً پاسخگو نیست (502).';
+      message =
+        'سرور دریافت پروازها موقتاً پاسخگو نیست (502).';
+
     } else if (message.includes('HTTP 503')) {
-      message = 'سرویس پرواز موقتاً در دسترس نیست (503).';
+      message =
+        'سرویس پرواز موقتاً در دسترس نیست (503).';
+
     } else if (message.includes('HTTP 504')) {
-      message = 'زمان پاسخ سرور تمام شد (504).';
+      message =
+        'زمان پاسخ سرور تمام شد (504).';
+
     } else if (message.includes('Failed to fetch')) {
-      message = 'ارتباط با سرور برقرار نشد؛ اینترنت یا CORS را بررسی کنید.';
+      message =
+        'ارتباط با سرور برقرار نشد؛ اینترنت یا CORS را بررسی کنید.';
     }
 
     setAircraftStatus(
@@ -1218,6 +1404,7 @@ async function fetchAircraft() {
     );
 
   } finally {
+
     aircraftFetchBusy = false;
 
     const currentButton = document.getElementById(
@@ -1226,7 +1413,18 @@ async function fetchAircraft() {
 
     if (currentButton) {
       currentButton.disabled = false;
-      currentButton.textContent = 'بروزرسانی پروازها';
+      currentButton.textContent =
+        'بروزرسانی پروازها';
+    }
+
+    // Process latest map position after previous request
+
+    if (aircraftFetchPending) {
+      aircraftFetchPending = false;
+
+      setTimeout(() => {
+        fetchAircraft();
+      }, 300);
     }
   }
 }
@@ -1234,7 +1432,54 @@ async function fetchAircraft() {
 window.fetchAircraft = fetchAircraft;
 
 // =====================================================
-// 20. START APPLICATION
+// 20. AUTOMATIC MAP TRACKING
+// =====================================================
+
+function scheduleAircraftUpdate() {
+
+  if (aircraftMoveTimer) {
+    clearTimeout(aircraftMoveTimer);
+  }
+
+  aircraftMoveTimer = setTimeout(() => {
+
+    aircraftMoveTimer = null;
+
+    fetchAircraft();
+
+  }, 1200);
+}
+
+// Detect completed map movement
+
+map.on('moveend', () => {
+  scheduleAircraftUpdate();
+});
+
+// Detect zoom changes
+
+map.on('zoomend', () => {
+  scheduleAircraftUpdate();
+});
+
+// =====================================================
+// 21. AUTOMATIC AIRCRAFT REFRESH
+// =====================================================
+
+// Initial loading
+
+setTimeout(() => {
+  fetchAircraft();
+}, 1500);
+
+// Refresh every 20 seconds
+
+setInterval(() => {
+  fetchAircraft();
+}, AIRCRAFT_REFRESH_MS);
+
+// =====================================================
+// 22. START APPLICATION
 // =====================================================
 
 loadSatellites();
@@ -1249,16 +1494,18 @@ setInterval(
   30 * 60 * 1000
 );
 
-setInterval(() => {
-  if (userLocation) {
-    fetchAircraft();
-  }
-}, AIRCRAFT_REFRESH_MS);
-
 console.log(
   '🛰️ Satellite Explorer Pro Loaded Successfully'
 );
 
 console.log(
-  '✈️ Aircraft Tracking Loaded Successfully'
+  '✈️ Live Aircraft Tracking PRO Loaded Successfully'
+);
+
+console.log(
+  '📍 Automatic Map Center Tracking Enabled'
+);
+
+console.log(
+  '🔄 Automatic Aircraft Refresh Enabled'
 );
