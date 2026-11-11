@@ -15,13 +15,14 @@ app.use(cors({
     ) {
       return callback(null, true);
     }
-    callback(new Error('Origin not allowed by CORS'));
+
+    return callback(new Error('Origin not allowed by CORS'));
   },
   methods: ['GET'],
   allowedHeaders: ['Accept']
 }));
 
-const TIMEOUT = 8000;
+const TIMEOUT = 15000;
 const CACHE_TIME = 10000;
 
 let cache = {
@@ -34,14 +35,32 @@ app.get('/', (req, res) => {
   res.json({
     ok: true,
     service: 'Satellite Explorer Aircraft Proxy',
-    version: '4.0',
-    endpoint: '/api/aircraft?lat=52.52&lon=13.405&dist=250'
+    version: '5.0',
+    endpoint: '/api/aircraft?lat=52.52&lon=13.405&dist=100'
   });
 });
 
 app.get('/health', (req, res) => {
-  res.json({ ok: true });
+  res.json({
+    ok: true,
+    service: 'aircraft-proxy',
+    version: '5.0'
+  });
 });
+
+function validateCoordinates(lat, lon, dist) {
+  return (
+    Number.isFinite(lat) &&
+    lat >= -90 &&
+    lat <= 90 &&
+    Number.isFinite(lon) &&
+    lon >= -180 &&
+    lon <= 180 &&
+    Number.isFinite(dist) &&
+    dist >= 1 &&
+    dist <= 250
+  );
+}
 
 async function getAircraft(provider) {
   const controller = new AbortController();
@@ -52,20 +71,32 @@ async function getAircraft(provider) {
   );
 
   try {
+    console.log('[PROVIDER REQUEST]', provider.name, provider.url);
+
     const response = await fetch(provider.url, {
       method: 'GET',
       headers: {
         Accept: 'application/json',
-        'User-Agent': 'SatelliteExplorer/4.0'
+        'User-Agent': 'SatelliteExplorer/5.0'
       },
       signal: controller.signal
     });
 
+    const body = await response.text();
+
     if (!response.ok) {
-      throw new Error('HTTP ' + response.status);
+      throw new Error(
+        `HTTP ${response.status}: ${body.slice(0, 300)}`
+      );
     }
 
-    const json = await response.json();
+    let json;
+
+    try {
+      json = JSON.parse(body);
+    } catch {
+      throw new Error('Invalid JSON response');
+    }
 
     let aircraft = [];
 
@@ -74,25 +105,29 @@ async function getAircraft(provider) {
     } else if (Array.isArray(json.aircraft)) {
       aircraft = json.aircraft;
     } else {
-      throw new Error('Invalid API response');
+      throw new Error('Aircraft array not found');
     }
 
-    aircraft = aircraft.filter(plane =>
-      plane &&
-      plane.lat !== null &&
-      plane.lon !== null &&
-      plane.lat !== undefined &&
-      plane.lon !== undefined &&
-      Number.isFinite(Number(plane.lat)) &&
-      Number.isFinite(Number(plane.lon)) &&
-      Number(plane.lat) >= -90 &&
-      Number(plane.lat) <= 90 &&
-      Number(plane.lon) >= -180 &&
-      Number(plane.lon) <= 180
-    );
+    aircraft = aircraft.filter(plane => {
+      if (!plane) return false;
+
+      const lat = Number(plane.lat);
+      const lon = Number(plane.lon);
+
+      return (
+        plane.lat != null &&
+        plane.lon != null &&
+        Number.isFinite(lat) &&
+        Number.isFinite(lon) &&
+        lat >= -90 &&
+        lat <= 90 &&
+        lon >= -180 &&
+        lon <= 180
+      );
+    });
 
     console.log(
-      '[AIRCRAFT OK]',
+      '[PROVIDER SUCCESS]',
       provider.name,
       aircraft.length
     );
@@ -111,19 +146,29 @@ async function getAircraft(provider) {
 app.get('/api/aircraft', async (req, res) => {
   const lat = Number(req.query.lat);
   const lon = Number(req.query.lon);
-  const dist = Number(req.query.dist || 250);
+  const dist = Number(req.query.dist ?? 100);
 
-  if (
-    !Number.isFinite(lat) ||
-    lat < -90 || lat > 90 ||
-    !Number.isFinite(lon) ||
-    lon < -180 || lon > 180 ||
-    !Number.isFinite(dist) ||
-    dist < 1 || dist > 250
-  ) {
+  console.log('[AIRCRAFT INPUT]', {
+    lat,
+    lon,
+    dist,
+    original: req.query
+  });
+
+  if (!validateCoordinates(lat, lon, dist)) {
     return res.status(400).json({
       ok: false,
-      error: 'Invalid coordinates or distance'
+      error: 'Invalid coordinates or distance',
+      received: {
+        lat: req.query.lat ?? null,
+        lon: req.query.lon ?? null,
+        dist: req.query.dist ?? null
+      },
+      allowed: {
+        latitude: '-90 to 90',
+        longitude: '-180 to 180',
+        distance: '1 to 250 nautical miles'
+      }
     });
   }
 
@@ -161,10 +206,8 @@ app.get('/api/aircraft', async (req, res) => {
     }
   ];
 
-  console.log('[AIRCRAFT] Request started');
-
   const results = await Promise.allSettled(
-    providers.map(provider => getAircraft(provider))
+    providers.map(getAircraft)
   );
 
   const successful = [];
@@ -174,10 +217,12 @@ app.get('/api/aircraft', async (req, res) => {
     if (result.status === 'fulfilled') {
       successful.push(result.value);
     } else {
+      const reason = result.reason;
+
       const message =
-        result.reason.name === 'AbortError'
+        reason.name === 'AbortError'
           ? 'Timeout'
-          : result.reason.message;
+          : reason.message;
 
       errors.push({
         provider: providers[index].name,
@@ -185,17 +230,17 @@ app.get('/api/aircraft', async (req, res) => {
       });
 
       console.error(
-        '[AIRCRAFT ERROR]',
+        '[PROVIDER ERROR]',
         providers[index].name,
         message
       );
     }
   });
 
-  if (successful.length === 0) {
+  if (!successful.length) {
     return res.status(502).json({
       ok: false,
-      error: 'Could not retrieve aircraft data',
+      error: 'All aircraft providers failed',
       providers: errors
     });
   }
@@ -211,9 +256,8 @@ app.get('/api/aircraft', async (req, res) => {
     ac: best.aircraft,
     total: best.aircraft.length,
     source: best.provider,
-    availableSources: successful.map(item => item.provider),
+    availableSources: successful.map(x => x.provider),
     failedSources: errors,
-    msg: 'No error',
     now: Date.now()
   };
 
@@ -225,9 +269,7 @@ app.get('/api/aircraft', async (req, res) => {
 
   console.log(
     '[AIRCRAFT COMPLETE]',
-    'Source:',
     best.provider,
-    'Total:',
     best.aircraft.length
   );
 
@@ -249,6 +291,6 @@ app.use((err, req, res, next) => {
 
 app.listen(PORT, '0.0.0.0', () => {
   console.log(
-    'Satellite Explorer Aircraft Proxy v4.0 running on port ' + PORT
+    `Satellite Explorer Aircraft Proxy v5.0 running on ${PORT}`
   );
 });
