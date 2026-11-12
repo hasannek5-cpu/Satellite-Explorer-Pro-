@@ -3,7 +3,7 @@
    SATELLITE EXPLORER PRO
    AIRCRAFT PROXY SERVER
    ADSB.FI + ADSB.LOL
-   VERSION 4.0.0
+   VERSION 5.0.0
    Node.js 18+
    ========================================================= */
 
@@ -17,21 +17,18 @@ const PORT = process.env.PORT || 10000;
 
 app.disable('x-powered-by');
 
-/* =========================================================
-   CORS
-   ========================================================= */
-
-const allowedOrigins = [
+const ALLOWED_ORIGINS = [
   'https://hasannek5-cpu.github.io'
 ];
 
 app.use(cors({
   origin(origin, callback) {
-    if (!origin || allowedOrigins.includes(origin)) {
+    if (!origin || ALLOWED_ORIGINS.includes(origin)) {
       return callback(null, true);
     }
-
-    return callback(new Error('Origin not allowed by CORS'));
+    const error = new Error('Origin not allowed by CORS');
+    error.status = 403;
+    callback(error);
   },
   methods: ['GET', 'OPTIONS'],
   allowedHeaders: ['Content-Type']
@@ -39,9 +36,7 @@ app.use(cors({
 
 app.use(express.json({ limit: '20kb' }));
 
-/* =========================================================
-   SERVER CONFIGURATION
-   ========================================================= */
+/* ================= CONFIG ================= */
 
 const REQUEST_TIMEOUT = 12000;
 const MAX_DISTANCE = 250;
@@ -57,126 +52,70 @@ const providers = [
   }
 ];
 
-const providerStatus = {
-  'adsb.fi': {
+const providerStatus = {};
+
+for (const p of providers) {
+  providerStatus[p.name] = {
     available: null,
     lastCheck: null,
-    error: null
-  },
-  'adsb.lol': {
-    available: null,
-    lastCheck: null,
-    error: null
-  }
-};
-
-/* =========================================================
-   BASIC ROUTES
-   ========================================================= */
-
-app.get('/', (req, res) => {
-  res.json({
-    ok: true,
-    service: 'Satellite Explorer Aircraft Proxy',
-    version: '4.0.0',
-    providers: providers.map(p => p.name),
-    endpoints: [
-      '/health',
-      '/api/status',
-      '/api/aircraft',
-      '/flights'
-    ]
-  });
-});
-
-app.get('/health', (req, res) => {
-  res.json({
-    ok: true,
-    status: 'running',
-    service: 'Satellite Explorer Aircraft Proxy',
-    time: new Date().toISOString()
-  });
-});
-
-app.get('/api/status', (req, res) => {
-  res.json({
-    ok: true,
-    version: '4.0.0',
-    providers: providerStatus
-  });
-});
-
-/* =========================================================
-   VALIDATION
-   ========================================================= */
-
-function validNumber(value, min, max) {
-  if (
-    value === undefined ||
-    value === null ||
-    value === ''
-  ) {
-    return false;
-  }
-
-  const n = Number(value);
-
-  return Number.isFinite(n) &&
-    n >= min &&
-    n <= max;
+    error: null,
+    aircraft: 0
+  };
 }
 
+/* ================= HELPERS ================= */
+
 function numericOrNull(value) {
-  if (
-    value === undefined ||
-    value === null ||
-    value === ''
-  ) {
+  if (value === null || value === undefined || value === '') {
     return null;
   }
 
   const n = Number(value);
-
   return Number.isFinite(n) ? n : null;
 }
 
-function altitudeOrNull(value) {
-  if (value === undefined || value === null) {
-    return null;
-  }
-
-  if (typeof value === 'number' && Number.isFinite(value)) {
-    return value;
-  }
-
-  if (typeof value === 'string') {
-    const n = Number(value);
-
-    return Number.isFinite(n) ? n : value;
-  }
-
-  return null;
+function validNumber(value, min, max) {
+  const n = numericOrNull(value);
+  return n !== null && n >= min && n <= max;
 }
 
-/* =========================================================
-   FETCH JSON WITH TIMEOUT
-   ========================================================= */
+function booleanValue(value) {
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'number') return value !== 0;
+
+  if (typeof value === 'string') {
+    return ['true', '1', 'yes'].includes(
+      value.trim().toLowerCase()
+    );
+  }
+
+  return false;
+}
+
+function cleanText(value) {
+  if (value === null || value === undefined) return null;
+  return String(value).trim() || null;
+}
+
+/* ================= FETCH ================= */
 
 async function fetchJSON(url) {
   const controller = new AbortController();
 
-  const timer = setTimeout(() => {
-    controller.abort();
-  }, REQUEST_TIMEOUT);
+  const timer = setTimeout(
+    () => controller.abort(),
+    REQUEST_TIMEOUT
+  );
 
   try {
     const response = await fetch(url, {
       method: 'GET',
-      signal: controller.signal,
+      cache: 'no-store',
       headers: {
         Accept: 'application/json',
-        'User-Agent': 'SatelliteExplorer/4.0'
-      }
+        'User-Agent': 'SatelliteExplorerPro/5.0'
+      },
+      signal: controller.signal
     });
 
     if (!response.ok) {
@@ -187,9 +126,8 @@ async function fetchJSON(url) {
 
   } catch (error) {
     if (error.name === 'AbortError') {
-      throw new Error('Request timeout');
+      throw new Error('Provider request timeout');
     }
-
     throw error;
 
   } finally {
@@ -197,9 +135,7 @@ async function fetchJSON(url) {
   }
 }
 
-/* =========================================================
-   NORMALIZE AIRCRAFT
-   ========================================================= */
+/* ================= NORMALIZE ================= */
 
 function normalizeAircraft(data, provider) {
   const list = Array.isArray(data?.ac)
@@ -216,44 +152,32 @@ function normalizeAircraft(data, provider) {
       a.hex || a.icao24 || ''
     ).trim().toLowerCase();
 
-    const flight = String(
-      a.flight || a.callsign || ''
-    ).trim();
-
     return {
       hex,
-      flight,
+
+      flight: cleanText(a.flight || a.callsign),
 
       lat,
       lon,
 
-      alt_baro: altitudeOrNull(
-        a.alt_baro ?? a.altitude
-      ),
-
-      alt_geom: altitudeOrNull(a.alt_geom),
+      alt_baro: a.alt_baro ?? a.altitude ?? null,
+      alt_geom: a.alt_geom ?? null,
 
       gs: numericOrNull(a.gs ?? a.speed),
 
-      track: numericOrNull(
-        a.track ?? a.heading
-      ),
+      track: numericOrNull(a.track ?? a.heading),
 
-      squawk: a.squawk ?? null,
-
-      category: a.category ?? null,
+      squawk: cleanText(a.squawk),
+      category: cleanText(a.category),
 
       seen: numericOrNull(a.seen),
-
       seen_pos: numericOrNull(a.seen_pos),
 
-      gnd: Boolean(a.gnd ?? a.on_ground ?? false),
+      gnd: booleanValue(a.gnd ?? a.on_ground),
 
-      r: a.r ?? a.registration ?? null,
-
-      t: a.t ?? a.type ?? null,
-
-      desc: a.desc ?? a.description ?? null,
+      r: cleanText(a.r ?? a.registration),
+      t: cleanText(a.t ?? a.type),
+      desc: cleanText(a.desc ?? a.description),
 
       source: provider
     };
@@ -269,9 +193,7 @@ function normalizeAircraft(data, provider) {
   );
 }
 
-/* =========================================================
-   PROVIDER REQUEST
-   ========================================================= */
+/* ================= PROVIDERS ================= */
 
 async function getProviderAircraft(provider, lat, lon, dist) {
   const url =
@@ -280,15 +202,13 @@ async function getProviderAircraft(provider, lat, lon, dist) {
   try {
     const data = await fetchJSON(url);
 
-    const aircraft = normalizeAircraft(
-      data,
-      provider.name
-    );
+    const aircraft = normalizeAircraft(data, provider.name);
 
     providerStatus[provider.name] = {
       available: true,
       lastCheck: new Date().toISOString(),
-      error: null
+      error: null,
+      aircraft: aircraft.length
     };
 
     return {
@@ -301,7 +221,8 @@ async function getProviderAircraft(provider, lat, lon, dist) {
     providerStatus[provider.name] = {
       available: false,
       lastCheck: new Date().toISOString(),
-      error: error.message
+      error: error.message,
+      aircraft: 0
     };
 
     console.error(
@@ -317,9 +238,23 @@ async function getProviderAircraft(provider, lat, lon, dist) {
   }
 }
 
-/* =========================================================
-   MERGE AIRCRAFT
-   ========================================================= */
+/* ================= MERGE ================= */
+
+function getAircraftScore(plane) {
+  let score = 0;
+
+  if (plane.flight) score += 3;
+  if (plane.alt_baro !== null) score++;
+  if (plane.gs !== null) score++;
+  if (plane.track !== null) score++;
+  if (plane.r) score += 2;
+  if (plane.t) score++;
+  if (plane.desc) score++;
+  if (plane.category) score++;
+  if (plane.seen_pos !== null) score++;
+
+  return score;
+}
 
 function mergeAircraft(results) {
   const aircraftMap = new Map();
@@ -333,40 +268,79 @@ function mergeAircraft(results) {
         continue;
       }
 
-      const previousScore = getAircraftScore(previous);
-      const currentScore = getAircraftScore(plane);
+      const preferred =
+        getAircraftScore(plane) > getAircraftScore(previous)
+          ? plane
+          : previous;
 
-      if (currentScore > previousScore) {
-        aircraftMap.set(plane.hex, {
-          ...previous,
-          ...plane
-        });
+      const secondary = preferred === plane ? previous : plane;
+
+      const merged = { ...secondary };
+
+      for (const [key, value] of Object.entries(preferred)) {
+        if (
+          value !== null &&
+          value !== undefined &&
+          value !== ''
+        ) {
+          merged[key] = value;
+        }
       }
+
+      aircraftMap.set(plane.hex, merged);
     }
   }
 
   return Array.from(aircraftMap.values());
 }
 
-function getAircraftScore(plane) {
-  let score = 0;
+/* ================= ROUTES ================= */
 
-  if (plane.flight) score += 2;
-  if (plane.alt_baro !== null) score++;
-  if (plane.gs !== null) score++;
-  if (plane.track !== null) score++;
-  if (plane.r) score++;
-  if (plane.t) score++;
-  if (plane.category) score++;
+app.get('/', (req, res) => {
+  res.set('Cache-Control', 'no-store');
 
-  return score;
-}
+  res.json({
+    ok: true,
+    service: 'Satellite Explorer Aircraft Proxy',
+    version: '5.0.0',
+    providers: providers.map(p => p.name),
+    endpoints: [
+      '/',
+      '/health',
+      '/api/status',
+      '/api/aircraft',
+      '/api/flights',
+      '/flights'
+    ]
+  });
+});
 
-/* =========================================================
-   AIRCRAFT API HANDLER
-   ========================================================= */
+app.get('/health', (req, res) => {
+  res.set('Cache-Control', 'no-store');
+
+  res.json({
+    ok: true,
+    status: 'running',
+    version: '5.0.0',
+    time: new Date().toISOString()
+  });
+});
+
+app.get('/api/status', (req, res) => {
+  res.set('Cache-Control', 'no-store');
+
+  res.json({
+    ok: true,
+    version: '5.0.0',
+    providers: providerStatus
+  });
+});
+
+/* ================= AIRCRAFT HANDLER ================= */
 
 async function aircraftHandler(req, res) {
+  res.set('Cache-Control', 'no-store');
+
   const latValue = req.query.lat;
   const lonValue = req.query.lon;
   const distValue = req.query.dist ?? 100;
@@ -395,14 +369,14 @@ async function aircraftHandler(req, res) {
   );
 
   const availableSources = results
-    .filter(result => result.ok)
-    .map(result => result.provider);
+    .filter(r => r.ok)
+    .map(r => r.provider);
 
   const failedSources = results
-    .filter(result => !result.ok)
-    .map(result => ({
-      provider: result.provider,
-      error: result.error
+    .filter(r => !r.ok)
+    .map(r => ({
+      provider: r.provider,
+      error: r.error
     }));
 
   const aircraft = mergeAircraft(results);
@@ -418,41 +392,22 @@ async function aircraftHandler(req, res) {
 
   return res.status(ok ? 200 : 502).json({
     ok,
-
     service: 'Satellite Explorer Aircraft Proxy',
-
-    version: '4.0.0',
-
+    version: '5.0.0',
     ac: aircraft,
-
     total: aircraft.length,
-
     source: availableSources.join(',') || null,
-
     availableSources,
-
     failedSources,
-
     now: Date.now()
   });
 }
 
-/* =========================================================
-   AIRCRAFT ENDPOINTS
-   ========================================================= */
-
-// Main API
 app.get('/api/aircraft', aircraftHandler);
-
-// Compatible endpoint for older frontend modules
+app.get('/api/flights', aircraftHandler);
 app.get('/flights', aircraftHandler);
 
-// Additional compatibility endpoint
-app.get('/api/flights', aircraftHandler);
-
-/* =========================================================
-   404 HANDLER
-   ========================================================= */
+/* ================= 404 ================= */
 
 app.use((req, res) => {
   res.status(404).json({
@@ -470,9 +425,7 @@ app.use((req, res) => {
   });
 });
 
-/* =========================================================
-   ERROR HANDLER
-   ========================================================= */
+/* ================= ERROR HANDLER ================= */
 
 app.use((err, req, res, next) => {
   console.error('[SERVER ERROR]', err.message);
@@ -481,34 +434,20 @@ app.use((err, req, res, next) => {
     return next(err);
   }
 
-  res.status(500).json({
+  res.status(err.status || 500).json({
     ok: false,
-    error: 'Internal server error'
+    error: err.status === 403
+      ? 'Origin not allowed by CORS'
+      : 'Internal server error'
   });
 });
 
-/* =========================================================
-   START SERVER
-   ========================================================= */
+/* ================= START ================= */
 
 app.listen(PORT, '0.0.0.0', () => {
-  console.log(
-    '=========================================='
-  );
-
-  console.log(
-    'SATELLITE EXPLORER AIRCRAFT PROXY v4.0.0'
-  );
-
-  console.log(
-    `Server running on port ${PORT}`
-  );
-
-  console.log(
-    'Providers: ADSB.fi + ADSB.lol'
-  );
-
-  console.log(
-    '=========================================='
-  );
+  console.log('==========================================');
+  console.log('SATELLITE EXPLORER AIRCRAFT PROXY v5.0.0');
+  console.log(`Server running on port ${PORT}`);
+  console.log('Providers: ADSB.fi + ADSB.lol');
+  console.log('==========================================');
 });
