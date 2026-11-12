@@ -1,488 +1,801 @@
 
 /* =========================================================
-   🛰️ SATELLITE EXPLORER PRO
-   EARTH ANALYSIS PRO
-   Landsat 8/9 LST + Sentinel-2 Spectral Analysis
-   Map Selection + GPS + Real Satellite Data
+   SATELLITE EXPLORER PRO
+   EARTH ANALYSIS MODULE - INTEGRATED FIXED VERSION
+   Map integration + GPS + Thermal + Mineral analysis
    ========================================================= */
 
 (() => {
   'use strict';
 
+  /* ===================== CONFIG ===================== */
+
   const CONFIG = {
-    API: 'https://earth-search.aws.element84.com/v1',
-    CLOUD_MAX: 30,
-    SEARCH_DAYS: 365,
-    REQUEST_TIMEOUT: 30000,
-    LANDSAT_COLLECTION: 'landsat-c2-l2',
-    SENTINEL_COLLECTION: 'sentinel-2-l2a'
+    sentinelUrl: 'https://earth-search.aws.element84.com/v1/search',
+    landsatUrl: 'https://landsatlook.usgs.gov/stac-server/search',
+    timeout: 70000,
+    maxCloud: 30,
+    maxItems: 8
   };
 
+  /* ===================== STATE ===================== */
+
   let selectedPoint = null;
+  let analysisBusy = false;
+  let thermalBusy = false;
+  let mineralBusy = false;
+
   let pointMarker = null;
-  let requestController = null;
+  let lastThermalData = null;
+  let lastMineralData = null;
+
+  /* ===================== HELPERS ===================== */
 
   const $ = id => document.getElementById(id);
 
-  // =====================================================
-  // 1. MAP
-  // =====================================================
-
-  function getMap() {
-    return window.map || null;
+  function log(message, error = false) {
+    console[error ? 'error' : 'log'](
+      '[EarthAnalysis]',
+      message
+    );
   }
 
-  function setResult(id, message) {
-    const element = $(id);
-    if (element) element.textContent = message;
+  function formatNumber(value, digits = 2) {
+    if (!Number.isFinite(Number(value))) return 'نامشخص';
+
+    return Number(value).toFixed(digits);
   }
 
-  function formatCoord(value) {
-    return Number(value).toFixed(6);
+  function showMessage(element, message, type = 'info') {
+    if (!element) return;
+
+    element.textContent = message;
+    element.dataset.status = type;
   }
 
-  function formatDate(value) {
-    if (!value) return 'نامشخص';
+  function setBusy(button, busy, text = 'در حال پردازش...') {
+    if (!button) return;
 
-    return new Date(value).toLocaleDateString('fa-IR');
-  }
+    if (busy) {
+      button.dataset.originalText =
+        button.textContent || '';
 
-  function validatePoint(lat, lon) {
-    return Number.isFinite(lat) &&
-      Number.isFinite(lon) &&
-      lat >= -90 &&
-      lat <= 90 &&
-      lon >= -180 &&
-      lon <= 180;
-  }
+      button.disabled = true;
+      button.textContent = text;
+    } else {
+      button.disabled = false;
 
-  // =====================================================
-  // 2. POINT SELECTION
-  // =====================================================
-
-  function selectEarthPoint(latlng) {
-    const lat = Number(latlng.lat);
-    const lon = Number(latlng.lng);
-
-    if (!validatePoint(lat, lon)) return;
-
-    selectedPoint = { lat, lon };
-
-    const coordinates = $('selectedCoordinates');
-
-    if (coordinates) {
-      coordinates.textContent =
-        `عرض: ${formatCoord(lat)}° | طول: ${formatCoord(lon)}°`;
-    }
-
-    const map = getMap();
-
-    if (map && window.L) {
-      if (pointMarker) {
-        map.removeLayer(pointMarker);
+      if (button.dataset.originalText) {
+        button.textContent =
+          button.dataset.originalText;
       }
-
-      pointMarker = L.circleMarker(
-        [lat, lon],
-        {
-          radius: 9,
-          color: '#ffe066',
-          fillColor: '#ffcc00',
-          fillOpacity: 0.95,
-          weight: 2
-        }
-      )
-        .addTo(map)
-        .bindPopup(
-          `نقطه تحلیل زمین<br>` +
-          `Latitude: ${formatCoord(lat)}<br>` +
-          `Longitude: ${formatCoord(lon)}`
-        )
-        .openPopup();
     }
-
-    setResult(
-      'thermalResult',
-      'نقطه انتخاب شد. برای دریافت تصویر ماهواره‌ای دکمه تحلیل حرارتی را بزنید.'
-    );
-
-    setResult(
-      'mineralResult',
-      'نقطه انتخاب شد. برای تحلیل طیفی دکمه تحلیل معدنی را بزنید.'
-    );
   }
 
-  // =====================================================
-  // 3. MAP CLICK
-  // =====================================================
-
-  function attachMapClick() {
-    const map = getMap();
-
-    if (!map || map._earthAnalysisAttached) return;
-
-    map._earthAnalysisAttached = true;
-
-    map.on('click', event => {
-      selectEarthPoint(event.latlng);
-    });
-  }
-
-  // =====================================================
-  // 4. HTTP REQUEST
-  // =====================================================
-
-  async function requestJSON(url, options = {}) {
+  async function fetchJSON(url, options = {}) {
     const controller = new AbortController();
 
     const timeout = setTimeout(
       () => controller.abort(),
-      CONFIG.REQUEST_TIMEOUT
+      CONFIG.timeout
     );
 
     try {
       const response = await fetch(url, {
         ...options,
-        signal: controller.signal,
-        headers: {
-          'Content-Type': 'application/json',
-          ...(options.headers || {})
-        }
+        signal: controller.signal
       });
 
       if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
+        throw new Error(
+          `HTTP ${response.status}`
+        );
       }
 
       return await response.json();
+    } catch (error) {
+      if (error.name === 'AbortError') {
+        throw new Error(
+          'زمان دریافت اطلاعات به پایان رسید.'
+        );
+      }
 
+      throw error;
     } finally {
       clearTimeout(timeout);
     }
   }
 
-  // =====================================================
-  // 5. STAC SEARCH
-  // =====================================================
+  function validateCoordinates(lat, lon) {
+    return (
+      Number.isFinite(lat) &&
+      Number.isFinite(lon) &&
+      lat >= -90 &&
+      lat <= 90 &&
+      lon >= -180 &&
+      lon <= 180
+    );
+  }
 
-  async function searchSatellite(collection, days) {
-    if (!selectedPoint) {
-      throw new Error('ابتدا یک نقطه روی نقشه انتخاب کنید.');
+  function getCoordinatesFromMap() {
+    if (!window.map) {
+      throw new Error(
+        'نقشه اصلی در دسترس نیست.'
+      );
     }
 
-    const end = new Date();
-    const start = new Date(
-      end.getTime() - days * 86400000
-    );
+    const center = window.map.getCenter();
 
-    const payload = {
-      collections: [collection],
+    return {
+      lat: center.lat,
+      lon: center.lng
+    };
+  }
 
+  function setSelectedPoint(lat, lon) {
+    if (!validateCoordinates(lat, lon)) {
+      throw new Error(
+        'مختصات انتخاب‌شده معتبر نیست.'
+      );
+    }
+
+    selectedPoint = {
+      lat,
+      lon,
+      timestamp: Date.now()
+    };
+
+    const coordinatesText =
+      `${lat.toFixed(6)}, ${lon.toFixed(6)}`;
+
+    const coordinateElement =
+      $('selectedCoordinates') ||
+      $('earthPointText');
+
+    if (coordinateElement) {
+      coordinateElement.textContent =
+        coordinatesText;
+    }
+
+    if (window.map && window.L) {
+      if (pointMarker) {
+        window.map.removeLayer(pointMarker);
+      }
+
+      pointMarker = window.L.marker([
+        lat,
+        lon
+      ]).addTo(window.map);
+
+      pointMarker.bindPopup(
+        `<b>نقطه تحلیل زمین</b><br>${coordinatesText}`
+      );
+    }
+
+    log('Selected point: ' + coordinatesText);
+
+    return selectedPoint;
+  }
+
+  /* ===================== MAP INTEGRATION ===================== */
+
+  function installMapEvents() {
+    if (!window.map || !window.L) {
+      log('Leaflet map is not available.');
+      return;
+    }
+
+    window.map.on('click', event => {
+      try {
+        setSelectedPoint(
+          event.latlng.lat,
+          event.latlng.lng
+        );
+      } catch (error) {
+        log(error.message, true);
+      }
+    });
+  }
+
+  /* ===================== SENTINEL-2 ===================== */
+
+  async function searchSentinel2(lat, lon) {
+    const body = {
+      collections: ['sentinel-2-l2a'],
+      limit: CONFIG.maxItems,
       intersects: {
         type: 'Point',
-        coordinates: [
-          selectedPoint.lon,
-          selectedPoint.lat
-        ]
+        coordinates: [lon, lat]
       },
-
-      datetime:
-        start.toISOString() + '/' + end.toISOString(),
-
-      limit: 30,
-
+      query: {
+        'eo:cloud_cover': {
+          lt: CONFIG.maxCloud
+        }
+      },
       sortby: [
         {
-          field: 'properties.datetime',
+          field: 'datetime',
           direction: 'desc'
         }
       ]
     };
 
-    const data = await requestJSON(
-      CONFIG.API + '/search',
+    const result = await fetchJSON(
+      CONFIG.sentinelUrl,
       {
         method: 'POST',
-        body: JSON.stringify(payload)
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(body)
       }
     );
 
-    return data.features || [];
+    return result.features || [];
   }
 
-  // =====================================================
-  // 6. BAND EXTRACTION
-  // =====================================================
+  function getAssetUrl(item, name) {
+    const asset = item.assets?.[name];
 
-  function getAsset(feature, names) {
-    if (!feature || !feature.assets) return null;
+    if (!asset) return null;
 
-    for (const name of names) {
-      if (feature.assets[name]) {
-        return feature.assets[name];
+    return asset.href || null;
+  }
+
+  function getSentinelMetadata(item) {
+    const properties = item.properties || {};
+
+    return {
+      id: item.id,
+      date: properties.datetime || 'نامشخص',
+      cloud: properties['eo:cloud_cover'],
+      platform: properties.platform || 'Sentinel-2',
+      tile: properties['s2:mgrs_tile'] || 'نامشخص',
+      assets: item.assets || {}
+    };
+  }
+
+  /* ===================== MINERAL ANALYSIS ===================== */
+
+  function calculateSpectralIndices(values) {
+    const B02 = Number(values.B02);
+    const B03 = Number(values.B03);
+    const B04 = Number(values.B04);
+    const B08 = Number(values.B08);
+    const B11 = Number(values.B11);
+    const B12 = Number(values.B12);
+
+    const safeRatio = (a, b) => {
+      const denominator = a + b;
+
+      if (!Number.isFinite(denominator) ||
+          Math.abs(denominator) < 1e-10) {
+        return null;
       }
-    }
 
-    return null;
+      return (a - b) / denominator;
+    };
+
+    return {
+      NDVI: safeRatio(B08, B04),
+      NDWI: safeRatio(B03, B08),
+      NDBI: safeRatio(B11, B08),
+      BSI: safeRatio(
+        B11 + B04,
+        B08 + B02
+      ),
+      SWIR_RATIO: safeRatio(B12, B11)
+    };
   }
 
-  function getBandHref(feature, names) {
-    const asset = getAsset(feature, names);
+  function classifySurface(indices) {
+    const ndvi = indices.NDVI;
+    const ndwi = indices.NDWI;
+    const ndbi = indices.NDBI;
+    const bsi = indices.BSI;
 
-    return asset && asset.href
-      ? asset.href
-      : null;
-  }
-
-  // =====================================================
-  // 7. THERMAL ANALYSIS
-  // =====================================================
-
-  window.loadThermalData = async function () {
-    if (!selectedPoint) {
-      setResult(
-        'thermalResult',
-        'ابتدا روی نقشه یک نقطه انتخاب کنید.'
-      );
-      return;
+    if (ndwi !== null && ndwi > 0.3) {
+      return 'احتمال سطح آبی';
     }
 
-    setResult(
-      'thermalResult',
-      'در حال جستجوی تصاویر Landsat 8 و 9 ...'
-    );
+    if (ndvi !== null && ndvi > 0.5) {
+      return 'پوشش گیاهی متراکم';
+    }
+
+    if (
+      bsi !== null &&
+      bsi > 0.2 &&
+      (ndvi === null || ndvi < 0.2)
+    ) {
+      return 'سطح خاکی یا منطقه کم‌پوشش';
+    }
+
+    if (ndbi !== null && ndbi > 0.2) {
+      return 'احتمال سطح ساخته‌شده یا شهری';
+    }
+
+    return 'سطح مختلط یا نامشخص';
+  }
+
+  function renderMineralResults(data) {
+    const output =
+      $('mineralResult') ||
+      $('earthMineralOutput');
+
+    if (!output) return;
+
+    const indices = data.indices || {};
+
+    output.innerHTML = '';
+
+    const container =
+      document.createElement('div');
+
+    container.className =
+      'earth-analysis-result';
+
+    const title =
+      document.createElement('h3');
+
+    title.textContent =
+      'تحلیل طیفی زمین';
+
+    container.appendChild(title);
+
+    const table =
+      document.createElement('table');
+
+    table.className =
+      'earth-analysis-table';
+
+    const rows = [
+      ['NDVI', indices.NDVI],
+      ['NDWI', indices.NDWI],
+      ['NDBI', indices.NDBI],
+      ['BSI', indices.BSI],
+      ['SWIR Ratio', indices.SWIR_RATIO]
+    ];
+
+    rows.forEach(([name, value]) => {
+      const row =
+        document.createElement('tr');
+
+      const nameCell =
+        document.createElement('td');
+
+      const valueCell =
+        document.createElement('td');
+
+      nameCell.textContent = name;
+
+      valueCell.textContent =
+        value === null || value === undefined
+          ? 'نامشخص'
+          : formatNumber(value, 4);
+
+      row.appendChild(nameCell);
+      row.appendChild(valueCell);
+
+      table.appendChild(row);
+    });
+
+    container.appendChild(table);
+
+    const classification =
+      document.createElement('p');
+
+    classification.textContent =
+      'طبقه‌بندی سطح: ' +
+      classifySurface(indices);
+
+    container.appendChild(classification);
+
+    const date =
+      document.createElement('p');
+
+    date.textContent =
+      'تاریخ تصویر: ' +
+      (data.date || 'نامشخص');
+
+    container.appendChild(date);
+
+    output.appendChild(container);
+  }
+
+  async function loadMineralData() {
+    if (mineralBusy) return;
+
+    mineralBusy = true;
+
+    const button =
+      $('earthAnalyzeButton');
+
+    setBusy(button, true);
 
     try {
-      const features = await searchSatellite(
-        CONFIG.LANDSAT_COLLECTION,
-        CONFIG.SEARCH_DAYS
-      );
+      const point =
+        selectedPoint ||
+        getCoordinatesFromMap();
 
-      if (!features.length) {
+      const items =
+        await searchSentinel2(
+          point.lat,
+          point.lon
+        );
+
+      if (!items.length) {
         throw new Error(
-          'تصویر Landsat برای این نقطه در بازه انتخابی یافت نشد.'
+          'تصویر Sentinel-2 مناسب پیدا نشد. منطقه یا تاریخ دیگری را امتحان کنید.'
         );
       }
 
-      const valid = features.filter(feature => {
-        const cloud =
-          feature.properties?.['eo:cloud_cover'];
+      const item = items[0];
 
-        return cloud == null ||
-          Number(cloud) <= CONFIG.CLOUD_MAX;
-      });
+      const metadata =
+        getSentinelMetadata(item);
 
-      if (!valid.length) {
-        throw new Error(
-          'تصاویر موجود دارای پوشش ابری بیش از حد مجاز هستند.'
-        );
-      }
-
-      const feature = valid[0];
-
-      const thermal = getAsset(
-        feature,
-        ['lwir11', 'st_b10', 'ST_B10']
-      );
-
-      if (!thermal) {
-        throw new Error(
-          'باند حرارتی در اطلاعات تصویر موجود نیست.'
-        );
-      }
-
-      const cloud =
-        feature.properties?.['eo:cloud_cover'];
-
-      const date = feature.properties?.datetime;
-
-      const result =
-        'تصویر واقعی Landsat پیدا شد.\n\n' +
-        `مختصات: ${formatCoord(selectedPoint.lat)}, ` +
-        `${formatCoord(selectedPoint.lon)}\n` +
-        `تاریخ تصویر: ${formatDate(date)}\n` +
-        `پوشش ابر: ${cloud ?? 'نامشخص'} درصد\n` +
-        `باند حرارتی: ${thermal.title || thermal.name || thermal.href}\n\n` +
-        'وضعیت: فراداده تصویر دریافت شد.\n' +
-        'برای محاسبه عدد واقعی دمای سطح زمین، باید داده پیکسلی باند حرارتی دریافت و ضریب تبدیل Landsat روی آن اعمال شود.';
-
-      setResult('thermalResult', result);
-
-    } catch (error) {
-      console.error('Thermal Analysis:', error);
-
-      setResult(
-        'thermalResult',
-        'خطا در تحلیل حرارتی:\n' + error.message
-      );
-    }
-  };
-
-  // =====================================================
-  // 8. MINERAL / SPECTRAL ANALYSIS
-  // =====================================================
-
-  window.loadMineralData = async function () {
-    if (!selectedPoint) {
-      setResult(
-        'mineralResult',
-        'ابتدا روی نقشه یک نقطه انتخاب کنید.'
-      );
-      return;
-    }
-
-    setResult(
-      'mineralResult',
-      'در حال جستجوی تصاویر Sentinel-2 ...'
-    );
-
-    try {
-      const features = await searchSatellite(
-        CONFIG.SENTINEL_COLLECTION,
-        CONFIG.SEARCH_DAYS
-      );
-
-      if (!features.length) {
-        throw new Error(
-          'تصویر Sentinel-2 برای این نقطه یافت نشد.'
-        );
-      }
-
-      const valid = features.filter(feature => {
-        const cloud =
-          feature.properties?.['eo:cloud_cover'];
-
-        return cloud == null ||
-          Number(cloud) <= CONFIG.CLOUD_MAX;
-      });
-
-      if (!valid.length) {
-        throw new Error(
-          'تصاویر مناسب با پوشش ابر کمتر از حد مجاز یافت نشد.'
-        );
-      }
-
-      const feature = valid[0];
-
-      const bands = {
-        B02: getBandHref(feature, ['blue', 'B02']),
-        B03: getBandHref(feature, ['green', 'B03']),
-        B04: getBandHref(feature, ['red', 'B04']),
-        B08: getBandHref(feature, ['nir', 'B08']),
-        B11: getBandHref(feature, ['swir16', 'B11']),
-        B12: getBandHref(feature, ['swir22', 'B12'])
+      const data = {
+        metadata,
+        date: metadata.date,
+        assets: {
+          B02: getAssetUrl(item, 'B02'),
+          B03: getAssetUrl(item, 'B03'),
+          B04: getAssetUrl(item, 'B04'),
+          B08: getAssetUrl(item, 'B08'),
+          B11: getAssetUrl(item, 'B11'),
+          B12: getAssetUrl(item, 'B12')
+        },
+        indices: null,
+        message:
+          'تصویر Sentinel-2 دریافت شد. برای محاسبه شاخص‌ها، مقادیر باندها باید از داده رستری استخراج شوند.'
       };
 
-      const available = Object.entries(bands)
-        .filter(([, value]) => Boolean(value))
-        .map(([name]) => name);
+      lastMineralData = data;
 
-      if (available.length < 4) {
+      renderMineralResults(data);
+
+      showMessage(
+        $('mineralResult') ||
+        $('earthMineralOutput'),
+        data.message,
+        'success'
+      );
+
+      log('Sentinel-2 metadata loaded.');
+
+      return data;
+    } catch (error) {
+      log(error.message, true);
+
+      showMessage(
+        $('mineralResult') ||
+        $('earthMineralOutput'),
+        'خطا در تحلیل معدنی: ' +
+          error.message,
+        'error'
+      );
+    } finally {
+      mineralBusy = false;
+      setBusy(button, false);
+    }
+  }
+
+  /* ===================== LANDSAT / THERMAL ===================== */
+
+  async function searchLandsat(lat, lon) {
+    const body = {
+      collections: [
+        'landsat-c2l2-sr',
+        'landsat-c2l2-st'
+      ],
+      limit: CONFIG.maxItems,
+      intersects: {
+        type: 'Point',
+        coordinates: [lon, lat]
+      },
+      sortby: [
+        {
+          field: 'datetime',
+          direction: 'desc'
+        }
+      ]
+    };
+
+    const result = await fetchJSON(
+      CONFIG.landsatUrl,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(body)
+      }
+    );
+
+    return result.features || [];
+  }
+
+  function renderThermalResults(data) {
+    const output =
+      $('thermalResult') ||
+      $('earthThermalOutput');
+
+    if (!output) return;
+
+    output.innerHTML = '';
+
+    const container =
+      document.createElement('div');
+
+    container.className =
+      'earth-analysis-result';
+
+    const title =
+      document.createElement('h3');
+
+    title.textContent =
+      'اطلاعات حرارتی زمین';
+
+    container.appendChild(title);
+
+    const fields = [
+      ['شناسه تصویر', data.id],
+      ['تاریخ تصویر', data.date],
+      ['ماهواره', data.platform],
+      ['باند حرارتی', data.band],
+      ['وضعیت', data.status]
+    ];
+
+    fields.forEach(([label, value]) => {
+      const p =
+        document.createElement('p');
+
+      p.textContent =
+        `${label}: ${value || 'نامشخص'}`;
+
+      container.appendChild(p);
+    });
+
+    if (data.asset) {
+      const link =
+        document.createElement('a');
+
+      link.href = data.asset;
+      link.target = '_blank';
+      link.rel = 'noopener noreferrer';
+      link.textContent =
+        'مشاهده فایل باند حرارتی';
+
+      container.appendChild(link);
+    }
+
+    output.appendChild(container);
+  }
+
+  async function loadThermalData() {
+    if (thermalBusy) return;
+
+    thermalBusy = true;
+
+    const button =
+      $('earthThermalButton');
+
+    setBusy(button, true);
+
+    try {
+      const point =
+        selectedPoint ||
+        getCoordinatesFromMap();
+
+      const items =
+        await searchLandsat(
+          point.lat,
+          point.lon
+        );
+
+      if (!items.length) {
         throw new Error(
-          'باندهای کافی برای تحلیل طیفی در دسترس نیستند.'
+          'تصویر Landsat مناسب پیدا نشد.'
         );
       }
 
-      const cloud =
-        feature.properties?.['eo:cloud_cover'];
+      const item = items[0];
+      const properties =
+        item.properties || {};
 
-      const date = feature.properties?.datetime;
+      const assets =
+        item.assets || {};
 
-      let result =
-        'تصویر واقعی Sentinel-2 پیدا شد.\n\n' +
-        `تاریخ تصویر: ${formatDate(date)}\n` +
-        `پوشش ابر: ${cloud ?? 'نامشخص'} درصد\n` +
-        `باندهای موجود: ${available.join(', ')}\n\n`;
+      const thermalAsset =
+        assets['lwir11'] ||
+        assets['ST_B10'] ||
+        assets['B10'] ||
+        assets['thermal'];
 
-      result +=
-        'شاخص‌های قابل محاسبه پس از دریافت داده پیکسلی:\n\n' +
-        'NDVI: پوشش گیاهی\n' +
-        'NDMI: رطوبت سطحی\n' +
-        'BSI: خاک بدون پوشش گیاهی\n' +
-        'شاخص‌های SWIR: بررسی ویژگی‌های طیفی سطح زمین\n\n';
+      const data = {
+        id: item.id,
+        date: properties.datetime,
+        platform: properties.platform,
+        band: thermalAsset
+          ? thermalAsset.title || thermalAsset.key
+          : 'ST_B10 / B10',
+        asset: thermalAsset
+          ? thermalAsset.href
+          : null,
+        status: thermalAsset
+          ? 'باند حرارتی موجود است؛ استخراج دمای واقعی نیازمند پردازش پیکسل‌ها است.'
+          : 'متادیتا دریافت شد؛ باند حرارتی مستقیم در این محصول پیدا نشد.'
+      };
 
-      result +=
-        'وضعیت: فراداده و باندهای تصویر دریافت شدند؛ ' +
-        'مقادیر عددی شاخص‌ها هنوز محاسبه نشده‌اند.';
+      lastThermalData = data;
 
-      setResult('mineralResult', result);
+      renderThermalResults(data);
 
+      log('Landsat thermal metadata loaded.');
+
+      return data;
     } catch (error) {
-      console.error('Mineral Analysis:', error);
+      log(error.message, true);
 
-      setResult(
-        'mineralResult',
-        'خطا در تحلیل طیفی:\n' + error.message
+      showMessage(
+        $('thermalResult') ||
+        $('earthThermalOutput'),
+        'خطا در تحلیل حرارتی: ' +
+          error.message,
+        'error'
       );
+    } finally {
+      thermalBusy = false;
+      setBusy(button, false);
     }
-  };
+  }
 
-  // =====================================================
-  // 9. GPS / EXTERNAL POINT
-  // =====================================================
+  /* ===================== GPS ===================== */
 
-  window.setEarthAnalysisPoint = function (lat, lon) {
-    lat = Number(lat);
-    lon = Number(lon);
-
-    if (!validatePoint(lat, lon)) {
-      setResult(
-        'selectedCoordinates',
-        'مختصات وارد شده معتبر نیست.'
+  function locateUser() {
+    if (!navigator.geolocation) {
+      showMessage(
+        $('location'),
+        'GPS در مرورگر پشتیبانی نمی‌شود.',
+        'error'
       );
+
       return;
     }
 
-    selectEarthPoint({
-      lat,
-      lng: lon
-    });
-  };
+    showMessage(
+      $('location'),
+      'در حال دریافت موقعیت GPS...',
+      'info'
+    );
 
-  // =====================================================
-  // 10. GET SELECTED POINT
-  // =====================================================
+    navigator.geolocation.getCurrentPosition(
+      position => {
+        const lat =
+          position.coords.latitude;
+
+        const lon =
+          position.coords.longitude;
+
+        try {
+          setSelectedPoint(lat, lon);
+
+          if (window.map) {
+            window.map.setView(
+              [lat, lon],
+              12
+            );
+          }
+
+          showMessage(
+            $('location'),
+            `GPS: ${lat.toFixed(5)}, ${lon.toFixed(5)}`,
+            'success'
+          );
+        } catch (error) {
+          showMessage(
+            $('location'),
+            error.message,
+            'error'
+          );
+        }
+      },
+      error => {
+        showMessage(
+          $('location'),
+          'خطای GPS: ' + error.message,
+          'error'
+        );
+      },
+      {
+        enableHighAccuracy: true,
+        timeout: 30000,
+        maximumAge: 10000
+      }
+    );
+  }
+
+  /* ===================== PUBLIC API ===================== */
 
   window.EarthAnalysis = {
-    attachMapClick,
-    selectEarthPoint,
+    setPoint: setSelectedPoint,
 
-    getSelectedPoint() {
-      return selectedPoint
-        ? { ...selectedPoint }
-        : null;
-    }
+    getPoint() {
+      return selectedPoint;
+    },
+
+    getMineralData() {
+      return lastMineralData;
+    },
+
+    getThermalData() {
+      return lastThermalData;
+    },
+
+    analyzeMinerals:
+      loadMineralData,
+
+    analyzeThermal:
+      loadThermalData,
+
+    locateUser
   };
 
-  // =====================================================
-  // 11. INITIALIZATION
-  // =====================================================
+  window.setEarthAnalysisPoint =
+    setSelectedPoint;
 
-  function initialize() {
-    attachMapClick();
+  window.loadMineralData =
+    loadMineralData;
+
+  window.loadThermalData =
+    loadThermalData;
+
+  /* ===================== INIT ===================== */
+
+  function init() {
+    installMapEvents();
+
+    const gpsButton =
+      $('gpsTab');
+
+    if (gpsButton) {
+      gpsButton.addEventListener(
+        'click',
+        locateUser
+      );
+    }
+
+    const mineralButton =
+      $('earthAnalyzeButton');
+
+    if (mineralButton) {
+      mineralButton.addEventListener(
+        'click',
+        loadMineralData
+      );
+    }
+
+    const thermalButton =
+      $('earthThermalButton');
+
+    if (thermalButton) {
+      thermalButton.addEventListener(
+        'click',
+        loadThermalData
+      );
+    }
+
+    log('Earth Analysis initialized.');
   }
 
   if (document.readyState === 'loading') {
     document.addEventListener(
       'DOMContentLoaded',
-      initialize,
+      init,
       { once: true }
     );
   } else {
-    initialize();
+    init();
   }
-
-  // =====================================================
-  // 12. MAP RECONNECTION
-  // =====================================================
-
-  const reconnect = setInterval(() => {
-    attachMapClick();
-
-    if (getMap() &&
-        getMap()._earthAnalysisAttached) {
-      clearInterval(reconnect);
-    }
-  }, 1000);
 
 })();
