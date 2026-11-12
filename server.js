@@ -3,6 +3,7 @@
    SATELLITE EXPLORER PRO
    AIRCRAFT PROXY SERVER
    ADSB.FI + ADSB.LOL
+   VERSION 4.0.0
    Node.js 18+
    ========================================================= */
 
@@ -16,12 +17,16 @@ const PORT = process.env.PORT || 10000;
 
 app.disable('x-powered-by');
 
+/* =========================================================
+   CORS
+   ========================================================= */
+
+const allowedOrigins = [
+  'https://hasannek5-cpu.github.io'
+];
+
 app.use(cors({
   origin(origin, callback) {
-    const allowedOrigins = [
-      'https://hasannek5-cpu.github.io'
-    ];
-
     if (!origin || allowedOrigins.includes(origin)) {
       return callback(null, true);
     }
@@ -32,31 +37,101 @@ app.use(cors({
   allowedHeaders: ['Content-Type']
 }));
 
+app.use(express.json({ limit: '20kb' }));
+
+/* =========================================================
+   SERVER CONFIGURATION
+   ========================================================= */
+
+const REQUEST_TIMEOUT = 12000;
+const MAX_DISTANCE = 250;
+
+const providers = [
+  {
+    name: 'adsb.fi',
+    base: 'https://opendata.adsb.fi/api/v3'
+  },
+  {
+    name: 'adsb.lol',
+    base: 'https://api.adsb.lol/v2'
+  }
+];
+
+const providerStatus = {
+  'adsb.fi': {
+    available: null,
+    lastCheck: null,
+    error: null
+  },
+  'adsb.lol': {
+    available: null,
+    lastCheck: null,
+    error: null
+  }
+};
+
+/* =========================================================
+   BASIC ROUTES
+   ========================================================= */
+
 app.get('/', (req, res) => {
   res.json({
     ok: true,
     service: 'Satellite Explorer Aircraft Proxy',
-    version: '3.0.0',
-    providers: ['adsb.fi', 'adsb.lol']
+    version: '4.0.0',
+    providers: providers.map(p => p.name),
+    endpoints: [
+      '/health',
+      '/api/status',
+      '/api/aircraft',
+      '/flights'
+    ]
   });
 });
 
-/* -------------------------
-   Validation
-------------------------- */
+app.get('/health', (req, res) => {
+  res.json({
+    ok: true,
+    status: 'running',
+    service: 'Satellite Explorer Aircraft Proxy',
+    time: new Date().toISOString()
+  });
+});
+
+app.get('/api/status', (req, res) => {
+  res.json({
+    ok: true,
+    version: '4.0.0',
+    providers: providerStatus
+  });
+});
+
+/* =========================================================
+   VALIDATION
+   ========================================================= */
 
 function validNumber(value, min, max) {
-  if (value === undefined || value === null || value === '') {
+  if (
+    value === undefined ||
+    value === null ||
+    value === ''
+  ) {
     return false;
   }
 
   const n = Number(value);
 
-  return Number.isFinite(n) && n >= min && n <= max;
+  return Number.isFinite(n) &&
+    n >= min &&
+    n <= max;
 }
 
 function numericOrNull(value) {
-  if (value === undefined || value === null || value === '') {
+  if (
+    value === undefined ||
+    value === null ||
+    value === ''
+  ) {
     return null;
   }
 
@@ -65,24 +140,42 @@ function numericOrNull(value) {
   return Number.isFinite(n) ? n : null;
 }
 
-/* -------------------------
-   Fetch with timeout
-------------------------- */
+function altitudeOrNull(value) {
+  if (value === undefined || value === null) {
+    return null;
+  }
+
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+
+  if (typeof value === 'string') {
+    const n = Number(value);
+
+    return Number.isFinite(n) ? n : value;
+  }
+
+  return null;
+}
+
+/* =========================================================
+   FETCH JSON WITH TIMEOUT
+   ========================================================= */
 
 async function fetchJSON(url) {
   const controller = new AbortController();
 
   const timer = setTimeout(() => {
     controller.abort();
-  }, 12000);
+  }, REQUEST_TIMEOUT);
 
   try {
     const response = await fetch(url, {
       method: 'GET',
       signal: controller.signal,
       headers: {
-        'Accept': 'application/json',
-        'User-Agent': 'SatelliteExplorer/3.0'
+        Accept: 'application/json',
+        'User-Agent': 'SatelliteExplorer/4.0'
       }
     });
 
@@ -104,9 +197,9 @@ async function fetchJSON(url) {
   }
 }
 
-/* -------------------------
-   Normalize aircraft data
-------------------------- */
+/* =========================================================
+   NORMALIZE AIRCRAFT
+   ========================================================= */
 
 function normalizeAircraft(data, provider) {
   const list = Array.isArray(data?.ac)
@@ -119,31 +212,42 @@ function normalizeAircraft(data, provider) {
     const lat = numericOrNull(a.lat ?? a.latitude);
     const lon = numericOrNull(a.lon ?? a.longitude);
 
-    return {
-      hex: String(a.hex || a.icao24 || '').trim().toLowerCase(),
+    const hex = String(
+      a.hex || a.icao24 || ''
+    ).trim().toLowerCase();
 
-      flight: String(
-        a.flight || a.callsign || ''
-      ).trim(),
+    const flight = String(
+      a.flight || a.callsign || ''
+    ).trim();
+
+    return {
+      hex,
+      flight,
 
       lat,
       lon,
 
-      alt_baro: a.alt_baro ?? a.altitude ?? null,
-      alt_geom: a.alt_geom ?? null,
+      alt_baro: altitudeOrNull(
+        a.alt_baro ?? a.altitude
+      ),
+
+      alt_geom: altitudeOrNull(a.alt_geom),
 
       gs: numericOrNull(a.gs ?? a.speed),
 
-      track: numericOrNull(a.track ?? a.heading),
+      track: numericOrNull(
+        a.track ?? a.heading
+      ),
 
       squawk: a.squawk ?? null,
 
       category: a.category ?? null,
 
       seen: numericOrNull(a.seen),
+
       seen_pos: numericOrNull(a.seen_pos),
 
-      gnd: a.gnd ?? a.on_ground ?? false,
+      gnd: Boolean(a.gnd ?? a.on_ground ?? false),
 
       r: a.r ?? a.registration ?? null,
 
@@ -165,109 +269,159 @@ function normalizeAircraft(data, provider) {
   );
 }
 
-/* -------------------------
-   ADSB.fi
-------------------------- */
+/* =========================================================
+   PROVIDER REQUEST
+   ========================================================= */
 
-async function getADSBfi(lat, lon, dist) {
+async function getProviderAircraft(provider, lat, lon, dist) {
   const url =
-    `https://opendata.adsb.fi/api/v3/lat/${lat}/lon/${lon}/dist/${dist}`;
+    `${provider.base}/lat/${lat}/lon/${lon}/dist/${dist}`;
 
-  const data = await fetchJSON(url);
+  try {
+    const data = await fetchJSON(url);
 
-  return normalizeAircraft(data, 'adsb.fi');
+    const aircraft = normalizeAircraft(
+      data,
+      provider.name
+    );
+
+    providerStatus[provider.name] = {
+      available: true,
+      lastCheck: new Date().toISOString(),
+      error: null
+    };
+
+    return {
+      ok: true,
+      provider: provider.name,
+      aircraft
+    };
+
+  } catch (error) {
+    providerStatus[provider.name] = {
+      available: false,
+      lastCheck: new Date().toISOString(),
+      error: error.message
+    };
+
+    console.error(
+      `[${provider.name}] ${error.message}`
+    );
+
+    return {
+      ok: false,
+      provider: provider.name,
+      aircraft: [],
+      error: error.message
+    };
+  }
 }
 
-/* -------------------------
-   ADSB.lol
-------------------------- */
+/* =========================================================
+   MERGE AIRCRAFT
+   ========================================================= */
 
-async function getADSBLOL(lat, lon, dist) {
-  const url =
-    `https://api.adsb.lol/v2/lat/${lat}/lon/${lon}/dist/${dist}`;
+function mergeAircraft(results) {
+  const aircraftMap = new Map();
 
-  const data = await fetchJSON(url);
+  for (const result of results) {
+    for (const plane of result.aircraft) {
+      const previous = aircraftMap.get(plane.hex);
 
-  return normalizeAircraft(data, 'adsb.lol');
+      if (!previous) {
+        aircraftMap.set(plane.hex, plane);
+        continue;
+      }
+
+      const previousScore = getAircraftScore(previous);
+      const currentScore = getAircraftScore(plane);
+
+      if (currentScore > previousScore) {
+        aircraftMap.set(plane.hex, {
+          ...previous,
+          ...plane
+        });
+      }
+    }
+  }
+
+  return Array.from(aircraftMap.values());
 }
 
-/* -------------------------
-   Aircraft API
-------------------------- */
+function getAircraftScore(plane) {
+  let score = 0;
 
-app.get('/api/aircraft', async (req, res) => {
-  const lat = Number(req.query.lat);
-  const lon = Number(req.query.lon);
-  const dist = Number(req.query.dist ?? 100);
+  if (plane.flight) score += 2;
+  if (plane.alt_baro !== null) score++;
+  if (plane.gs !== null) score++;
+  if (plane.track !== null) score++;
+  if (plane.r) score++;
+  if (plane.t) score++;
+  if (plane.category) score++;
+
+  return score;
+}
+
+/* =========================================================
+   AIRCRAFT API HANDLER
+   ========================================================= */
+
+async function aircraftHandler(req, res) {
+  const latValue = req.query.lat;
+  const lonValue = req.query.lon;
+  const distValue = req.query.dist ?? 100;
 
   if (
-    !validNumber(req.query.lat, -90, 90) ||
-    !validNumber(req.query.lon, -180, 180) ||
-    !validNumber(req.query.dist ?? 100, 1, 250)
+    !validNumber(latValue, -90, 90) ||
+    !validNumber(lonValue, -180, 180) ||
+    !validNumber(distValue, 1, MAX_DISTANCE)
   ) {
     return res.status(400).json({
       ok: false,
       error: 'Invalid coordinates or distance',
-      example: '/api/aircraft?lat=35.6892&lon=51.3890&dist=100'
+      example:
+        '/api/aircraft?lat=35.6892&lon=51.3890&dist=100'
     });
   }
 
-  const providers = [
-    {
-      name: 'adsb.fi',
-      run: getADSBfi
-    },
-    {
-      name: 'adsb.lol',
-      run: getADSBLOL
-    }
-  ];
+  const lat = Number(latValue);
+  const lon = Number(lonValue);
+  const dist = Number(distValue);
 
-  const results = await Promise.allSettled(
+  const results = await Promise.all(
     providers.map(provider =>
-      provider.run(lat, lon, dist)
+      getProviderAircraft(provider, lat, lon, dist)
     )
   );
 
-  const aircraft = [];
-  const availableSources = [];
-  const failedSources = [];
-  const seen = new Set();
+  const availableSources = results
+    .filter(result => result.ok)
+    .map(result => result.provider);
 
-  results.forEach((result, index) => {
-    const provider = providers[index].name;
+  const failedSources = results
+    .filter(result => !result.ok)
+    .map(result => ({
+      provider: result.provider,
+      error: result.error
+    }));
 
-    if (result.status === 'fulfilled') {
-      availableSources.push(provider);
-
-      for (const plane of result.value) {
-        if (seen.has(plane.hex)) {
-          continue;
-        }
-
-        seen.add(plane.hex);
-        aircraft.push(plane);
-      }
-
-    } else {
-      failedSources.push({
-        provider,
-        error: result.reason?.message || 'Unknown error'
-      });
-    }
-  });
+  const aircraft = mergeAircraft(results);
 
   const ok = availableSources.length > 0;
 
   console.log(
-    `[AIRCRAFT] ${new Date().toISOString()} | ` +
-    `lat=${lat} lon=${lon} dist=${dist} | ` +
-    `planes=${aircraft.length} | ` +
+    `[AIRCRAFT] ${new Date().toISOString()} ` +
+    `lat=${lat} lon=${lon} dist=${dist} ` +
+    `planes=${aircraft.length} ` +
     `sources=${availableSources.join(',') || 'none'}`
   );
 
   return res.status(ok ? 200 : 502).json({
     ok,
+
+    service: 'Satellite Explorer Aircraft Proxy',
+
+    version: '4.0.0',
 
     ac: aircraft,
 
@@ -281,22 +435,44 @@ app.get('/api/aircraft', async (req, res) => {
 
     now: Date.now()
   });
-});
+}
 
-/* -------------------------
-   404 handler
-------------------------- */
+/* =========================================================
+   AIRCRAFT ENDPOINTS
+   ========================================================= */
+
+// Main API
+app.get('/api/aircraft', aircraftHandler);
+
+// Compatible endpoint for older frontend modules
+app.get('/flights', aircraftHandler);
+
+// Additional compatibility endpoint
+app.get('/api/flights', aircraftHandler);
+
+/* =========================================================
+   404 HANDLER
+   ========================================================= */
 
 app.use((req, res) => {
   res.status(404).json({
     ok: false,
-    error: 'Endpoint not found'
+    error: 'Endpoint not found',
+    requested: req.originalUrl,
+    availableEndpoints: [
+      '/',
+      '/health',
+      '/api/status',
+      '/api/aircraft',
+      '/api/flights',
+      '/flights'
+    ]
   });
 });
 
-/* -------------------------
-   Error handler
-------------------------- */
+/* =========================================================
+   ERROR HANDLER
+   ========================================================= */
 
 app.use((err, req, res, next) => {
   console.error('[SERVER ERROR]', err.message);
@@ -311,12 +487,28 @@ app.use((err, req, res, next) => {
   });
 });
 
-/* -------------------------
-   Start server
-------------------------- */
+/* =========================================================
+   START SERVER
+   ========================================================= */
 
 app.listen(PORT, '0.0.0.0', () => {
   console.log(
-    `Satellite Explorer Aircraft Proxy running on port ${PORT}`
+    '=========================================='
+  );
+
+  console.log(
+    'SATELLITE EXPLORER AIRCRAFT PROXY v4.0.0'
+  );
+
+  console.log(
+    `Server running on port ${PORT}`
+  );
+
+  console.log(
+    'Providers: ADSB.fi + ADSB.lol'
+  );
+
+  console.log(
+    '=========================================='
   );
 });
