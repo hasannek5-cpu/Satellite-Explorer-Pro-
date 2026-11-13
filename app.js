@@ -883,8 +883,8 @@ function renderSatelliteCommunication() {
   details.appendChild(panel);
 }
 
-// =====================================================
-// 19. LIVE AIRCRAFT TRACKING PRO-
+// ====================================================
+// 19. LIVE AIRCRAFT TRACKING PRO
 // MAP CENTER + GPS + AUTO REFRESH
 // =====================================================
 
@@ -895,7 +895,7 @@ const AIRCRAFT_MAX_RADIUS_NM = 250;
 const AIRCRAFT_MIN_RADIUS_NM = 25;
 
 const AIRCRAFT_API =
-  'https://satellite-explorer-pro-.onrender.com/api/aircraft';
+  'https://satellite-explorer-pro.onrender.com/api/aircraft';
 
 const aircraftLayer = L.layerGroup().addTo(map);
 const aircraftMarkers = new Map();
