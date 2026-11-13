@@ -1,151 +1,93 @@
 
-/* =========================================================
-   SATELLITE EXPLORER PRO-1
-   GLOBAL AIRCRAFT PROXY SERVER
-   ADSB.FI + ADSB.LOL
-   VERSION 7.1.0
-   TARGET RADIUS: 8000 KM
-   NODE.JS 18+
-   ========================================================= */
-
 'use strict';
 
 const express = require('express');
 const cors = require('cors');
 
 const app = express();
-const PORT = Number(process.env.PORT) || 10000;
+const PORT = process.env.PORT || 10000;
 
-app.disable('x-powered-by');
-
-/* ================= CONFIG ================= */
-
-const VERSION = '7.1.0';
-const TARGET_RADIUS_KM = 8000;
-
+const VERSION = '8.0.0';
+const TARGET_RADIUS_KM = 2000;
 const PROVIDER_DISTANCE_NM = 250;
 const PROVIDER_RADIUS_KM = PROVIDER_DISTANCE_NM * 1.852;
 
-const GRID_SPACING_KM = 700;
+const GRID_SPACING_KM = 550;
 const BATCH_SIZE = 2;
-
-const REQUEST_TIMEOUT = 10000;
+const MAX_TILE_ATTEMPTS = 3;
+const RETRY_DELAY = 15000;
+const REQUEST_TIMEOUT = 12000;
 const PROVIDER_MIN_INTERVAL = 1100;
+const TILE_CACHE_TTL = 15 * 60 * 1000;
+const AIRCRAFT_CACHE_TTL = 3 * 60 * 1000;
 
-const TILE_CACHE_TTL = 5 * 60 * 1000;
-const AIRCRAFT_CACHE_TTL = 90 * 1000;
-
-const MAX_AIRCRAFT_CACHE = 30000;
-const MAX_TILE_CACHE = 2500;
-
-const ALLOWED_ORIGINS = [
-  'https://hasannek5-cpu.github.io'
-];
-
-const providers = [
-  {
-    name: 'adsb.fi',
-    base: 'https://opendata.adsb.fi/api/v3'
-  },
-  {
-    name: 'adsb.lol',
-    base: 'https://api.adsb.lol/v2'
-  }
-];
+const PROVIDERS = {
+  'adsb.fi': 'https://opendata.adsb.fi/api/v3',
+  'adsb.lol': 'https://api.adsb.lol/v2'
+};
 
 app.use(cors({
   origin(origin, callback) {
-    if (!origin || ALLOWED_ORIGINS.includes(origin)) {
+    if (
+      !origin ||
+      origin === 'https://hasannek5-cpu.github.io'
+    ) {
       return callback(null, true);
     }
-
-    const error = new Error('Origin not allowed by CORS');
-    error.status = 403;
-    return callback(error);
-  },
-  methods: ['GET', 'OPTIONS'],
-  allowedHeaders: ['Content-Type']
+    callback(new Error('Origin not allowed'));
+  }
 }));
 
-app.use(express.json({ limit: '20kb' }));
+app.use(express.json({ limit: '1mb' }));
 
-/* ================= STATE ================= */
+const providerStatus = {};
+const providerQueues = {};
+const lastProviderRequest = {};
 
-const providerStatus = Object.fromEntries(
-  providers.map(p => [
-    p.name,
-    {
-      available: null,
-      lastCheck: null,
-      error: null,
-      aircraft: 0,
-      requests: 0
-    }
-  ])
-);
+for (const name of Object.keys(PROVIDERS)) {
+  providerStatus[name] = {
+    available: false,
+    requests: 0,
+    successes: 0,
+    failures: 0,
+    aircraft: 0,
+    lastCheck: null,
+    lastError: null
+  };
+
+  providerQueues[name] = Promise.resolve();
+  lastProviderRequest[name] = 0;
+}
 
 const tileCache = new Map();
 const aircraftCache = new Map();
+const tileStates = new Map();
 
 let currentScanKey = null;
 let currentGrid = [];
-let currentScannedTiles = new Set();
-
 let scanCursor = 0;
-let scanLock = Promise.resolve();
-
-const lastProviderRequest = {
-  'adsb.fi': 0,
-  'adsb.lol': 0
-};
-
-/* ================= HELPERS ================= */
+let scanRunning = false;
+let scanQueue = Promise.resolve();
 
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-function numericOrNull(value) {
-  if (
-    value === null ||
-    value === undefined ||
-    value === '' ||
-    value === 'ground'
-  ) {
-    return null;
-  }
-
-  const n = Number(value);
-
-  return Number.isFinite(n) ? n : null;
+function num(value) {
+  const result = Number(value);
+  return Number.isFinite(result) ? result : null;
 }
 
-function validNumber(value, min, max) {
-  const n = numericOrNull(value);
-
-  return n !== null && n >= min && n <= max;
+function rad(value) {
+  return value * Math.PI / 180;
 }
 
-function booleanValue(value) {
-  if (typeof value === 'boolean') return value;
-  if (typeof value === 'number') return value !== 0;
-
-  return typeof value === 'string' &&
-    ['true', '1', 'yes'].includes(
-      value.trim().toLowerCase()
-    );
+function deg(value) {
+  return value * 180 / Math.PI;
 }
 
-function cleanText(value) {
-  if (value === null || value === undefined) return null;
-
-  return String(value).trim() || null;
-}
-
-function haversine(lat1, lon1, lat2, lon2) {
+function haversineKm(lat1, lon1, lat2, lon2) {
   const R = 6371;
-  const rad = n => n * Math.PI / 180;
-
   const dLat = rad(lat2 - lat1);
   const dLon = rad(lon2 - lon1);
 
@@ -155,25 +97,18 @@ function haversine(lat1, lon1, lat2, lon2) {
     Math.cos(rad(lat2)) *
     Math.sin(dLon / 2) ** 2;
 
-  return 2 * R * Math.asin(
-    Math.sqrt(Math.min(1, a))
+  return 2 * R * Math.atan2(
+    Math.sqrt(a),
+    Math.sqrt(1 - a)
   );
 }
 
-function normalizeLongitude(lon) {
-  return ((lon + 540) % 360) - 180;
-}
+function destinationPoint(lat, lon, northKm, eastKm) {
+  const distance = Math.hypot(northKm, eastKm);
+  if (!distance) return { lat, lon };
 
-/* ================= GEOGRAPHY ================= */
-
-function destinationPoint(lat, lon, bearing, distanceKm) {
-  const R = 6371;
-
-  const rad = n => n * Math.PI / 180;
-  const deg = n => n * 180 / Math.PI;
-
-  const angular = distanceKm / R;
-  const brng = rad(bearing);
+  const bearing = Math.atan2(eastKm, northKm);
+  const angular = distance / 6371;
 
   const lat1 = rad(lat);
   const lon1 = rad(lon);
@@ -181,11 +116,11 @@ function destinationPoint(lat, lon, bearing, distanceKm) {
   const lat2 = Math.asin(
     Math.sin(lat1) * Math.cos(angular) +
     Math.cos(lat1) * Math.sin(angular) *
-    Math.cos(brng)
+    Math.cos(bearing)
   );
 
   const lon2 = lon1 + Math.atan2(
-    Math.sin(brng) * Math.sin(angular) *
+    Math.sin(bearing) * Math.sin(angular) *
     Math.cos(lat1),
     Math.cos(angular) -
     Math.sin(lat1) * Math.sin(lat2)
@@ -193,778 +128,620 @@ function destinationPoint(lat, lon, bearing, distanceKm) {
 
   return {
     lat: deg(lat2),
-    lon: normalizeLongitude(deg(lon2))
+    lon: ((deg(lon2) + 540) % 360) - 180
   };
 }
 
-/* ================= GRID ================= */
-
-function generateGrid(centerLat, centerLon, radiusKm) {
-  const points = [
-    { lat: centerLat, lon: centerLon }
-  ];
-
-  const rowStep = GRID_SPACING_KM * Math.sqrt(3) / 2;
-  const maxRows = Math.ceil(radiusKm / rowStep);
-
-  const seen = new Set([
-    `${centerLat.toFixed(4)}:${centerLon.toFixed(4)}`
-  ]);
-
-  for (let row = -maxRows; row <= maxRows; row++) {
-    const north = row * rowStep;
-
-    const offset = (Math.abs(row) % 2)
-      ? GRID_SPACING_KM / 2
-      : 0;
-
-    const maxCols = Math.ceil(radiusKm / GRID_SPACING_KM) + 1;
-
-    for (let col = -maxCols; col <= maxCols; col++) {
-      const east = col * GRID_SPACING_KM + offset;
-      const distance = Math.hypot(east, north);
-
-      if (distance < 1 || distance > radiusKm) continue;
-
-      const bearing =
-        (Math.atan2(east, north) * 180 / Math.PI + 360) % 360;
-
-      const point = destinationPoint(
-        centerLat,
-        centerLon,
-        bearing,
-        distance
-      );
-
-      const key =
-        `${point.lat.toFixed(4)}:${point.lon.toFixed(4)}`;
-
-      if (!seen.has(key)) {
-        seen.add(key);
-        points.push(point);
-      }
-    }
-  }
-
-  return points;
-}
-
-/* ================= NORMALIZATION ================= */
-
-function normalizeAircraft(data, provider) {
-  const list = Array.isArray(data?.ac)
-    ? data.ac
-    : Array.isArray(data?.aircraft)
-      ? data.aircraft
-      : [];
-
-  return list.map(a => {
-    const lat = numericOrNull(a.lat ?? a.latitude);
-    const lon = numericOrNull(a.lon ?? a.longitude);
-
-    return {
-      hex: String(
-        a.hex || a.icao24 || ''
-      ).trim().toLowerCase(),
-
-      flight: cleanText(a.flight || a.callsign),
-
-      lat,
-      lon,
-
-      alt_baro: numericOrNull(a.alt_baro ?? a.altitude),
-      alt_geom: numericOrNull(a.alt_geom),
-
-      gs: numericOrNull(a.gs ?? a.speed),
-      track: numericOrNull(a.track ?? a.heading),
-
-      squawk: cleanText(a.squawk),
-      category: cleanText(a.category),
-
-      seen: numericOrNull(a.seen),
-      seen_pos: numericOrNull(a.seen_pos),
-
-      gnd: booleanValue(a.gnd ?? a.on_ground),
-
-      r: cleanText(a.r ?? a.registration),
-      t: cleanText(a.t ?? a.type),
-      desc: cleanText(a.desc ?? a.description),
-
-      source: provider
-    };
-  }).filter(a =>
-    a.hex &&
-    validNumber(a.lat, -90, 90) &&
-    validNumber(a.lon, -180, 180)
-  );
-}
-
-/* ================= PROVIDER REQUEST ================= */
-
-async function fetchJSON(url) {
-  const controller = new AbortController();
-
-  const timer = setTimeout(
-    () => controller.abort(),
-    REQUEST_TIMEOUT
-  );
-
-  try {
-    const response = await fetch(url, {
-      method: 'GET',
-      cache: 'no-store',
-      headers: {
-        Accept: 'application/json',
-        'User-Agent': `SatelliteExplorerPro/${VERSION}`
-      },
-      signal: controller.signal
-    });
-
-    const body = await response.text();
-
-    if (!response.ok) {
-      throw new Error(
-        `HTTP ${response.status}: ${body.slice(0, 250)}`
-      );
-    }
-
-    try {
-      return JSON.parse(body);
-    } catch {
-      throw new Error('Invalid JSON response from provider');
-    }
-
-  } catch (error) {
-    if (error.name === 'AbortError') {
-      throw new Error('Provider request timeout');
-    }
-
-    throw error;
-
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-async function waitProviderLimit(name) {
-  const wait = Math.max(
-    0,
-    PROVIDER_MIN_INTERVAL -
-    (Date.now() - lastProviderRequest[name])
-  );
-
-  if (wait) await sleep(wait);
-
-  lastProviderRequest[name] = Date.now();
-}
-
-async function getProviderAircraft(provider, lat, lon) {
-  await waitProviderLimit(provider.name);
-
-  const url =
-    `${provider.base}/lat/${lat.toFixed(5)}` +
-    `/lon/${lon.toFixed(5)}` +
-    `/dist/${PROVIDER_DISTANCE_NM}`;
-
-  providerStatus[provider.name].requests++;
-
-  try {
-    const data = await fetchJSON(url);
-
-    const aircraft = normalizeAircraft(
-      data,
-      provider.name
-    );
-
-    providerStatus[provider.name] = {
-      ...providerStatus[provider.name],
-      available: true,
-      lastCheck: new Date().toISOString(),
-      error: null,
-      aircraft: aircraft.length
-    };
-
-    return {
-      ok: true,
-      provider: provider.name,
-      aircraft
-    };
-
-  } catch (error) {
-    providerStatus[provider.name] = {
-      ...providerStatus[provider.name],
-      available: false,
-      lastCheck: new Date().toISOString(),
-      error: error.message,
-      aircraft: 0
-    };
-
-    console.error(
-      `[${provider.name}] ${error.message}`
-    );
-
-    return {
-      ok: false,
-      provider: provider.name,
-      aircraft: [],
-      error: error.message
-    };
-  }
-}
-
-/* ================= MERGE ================= */
-
-function aircraftScore(p) {
-  let score = 0;
-
-  if (p.flight) score += 3;
-  if (p.alt_baro !== null) score++;
-  if (p.gs !== null) score++;
-  if (p.track !== null) score++;
-  if (p.r) score += 2;
-  if (p.t) score++;
-  if (p.desc) score++;
-  if (p.category) score++;
-  if (p.seen_pos !== null) score++;
-
-  return score;
-}
-
-function mergeAircraft(results) {
-  const map = new Map();
-
-  for (const result of results) {
-    for (const plane of result.aircraft || []) {
-      const old = map.get(plane.hex);
-
-      if (!old) {
-        map.set(plane.hex, plane);
-        continue;
-      }
-
-      const preferred =
-        aircraftScore(plane) > aircraftScore(old)
-          ? plane
-          : old;
-
-      const secondary =
-        preferred === plane ? old : plane;
-
-      map.set(plane.hex, {
-        ...secondary,
-        ...Object.fromEntries(
-          Object.entries(preferred).filter(
-            ([, value]) =>
-              value !== null &&
-              value !== undefined &&
-              value !== ''
-          )
-        )
-      });
-    }
-  }
-
-  return Array.from(map.values());
-}
-
-/* ================= SCAN ================= */
-
-function initializeScan(lat, lon, radiusKm) {
-  const key =
-    `${lat.toFixed(3)}:${lon.toFixed(3)}:${radiusKm}`;
-
-  if (key === currentScanKey) return;
-
-  currentScanKey = key;
-
-  currentGrid = generateGrid(
+function normalizeAircraft(raw, source) {
+  if (!raw || typeof raw !== 'object') return null;
+
+  const lat = num(raw.lat ?? raw.latitude);
+  const lon = num(raw.lon ?? raw.longitude);
+
+  if (
+    lat === null || lon === null ||
+    lat < -90 || lat > 90 ||
+    lon < -180 || lon > 180
+  ) return null;
+
+  const hex = String(
+    raw.hex || raw.icao || raw.icao24 || ''
+  ).trim().toLowerCase();
+
+  if (!hex) return null;
+
+  return {
+    hex,
+    flight: String(raw.flight || raw.callsign || '').trim(),
     lat,
     lon,
-    radiusKm
-  );
-
-  currentScannedTiles = new Set();
-  scanCursor = 0;
-
-  aircraftCache.clear();
-
-  console.log(
-    `[SCAN] New grid: ${currentGrid.length} tiles`
-  );
+    altitude: num(
+      raw.alt_baro ?? raw.altitude ??
+      raw.altitude_baro ?? raw.alt_geom
+    ),
+    altitude_geom: num(raw.alt_geom),
+    speed: num(raw.gs ?? raw.speed ?? raw.velocity),
+    track: num(raw.track ?? raw.heading),
+    vertical_rate: num(raw.baro_rate ?? raw.vertical_rate),
+    squawk: raw.squawk || null,
+    category: raw.category || null,
+    registration: raw.r || raw.registration || null,
+    aircraft_type: raw.t || raw.type || null,
+    emergency: raw.emergency || null,
+    on_ground: raw.ground === true || raw.on_ground === true,
+    seen: num(raw.seen),
+    seen_pos: num(raw.seen_pos),
+    sources: [source],
+    updatedAt: Date.now()
+  };
 }
 
-function tileKey(index) {
-  return `${currentScanKey}:${index}`;
-}
+function mergeAircraft(oldPlane, newPlane) {
+  if (!oldPlane) return newPlane;
 
-function tileIsCached(index) {
-  const item = tileCache.get(tileKey(index));
+  const newer = newPlane.updatedAt >= oldPlane.updatedAt
+    ? newPlane
+    : oldPlane;
 
-  return Boolean(
-    item &&
-    Date.now() - item.time < TILE_CACHE_TTL
+  const older = newer === newPlane ? oldPlane : newPlane;
+  const merged = { ...older, ...newer };
+
+  for (const key of Object.keys(merged)) {
+    if (
+      merged[key] === null ||
+      merged[key] === undefined ||
+      merged[key] === ''
+    ) {
+      merged[key] = older[key] ?? null;
+    }
+  }
+
+  merged.sources = [
+    ...new Set([
+      ...(oldPlane.sources || []),
+      ...(newPlane.sources || [])
+    ])
+  ];
+
+  merged.updatedAt = Math.max(
+    oldPlane.updatedAt,
+    newPlane.updatedAt
   );
+
+  return merged;
 }
 
 function rememberAircraft(planes) {
   for (const plane of planes) {
     const old = aircraftCache.get(plane.hex);
-
-    const merged = old
-      ? mergeAircraft([
-          { aircraft: [old.plane] },
-          { aircraft: [plane] }
-        ])[0]
-      : plane;
-
-    aircraftCache.set(plane.hex, {
-      plane: merged,
-      time: Date.now()
-    });
+    aircraftCache.set(
+      plane.hex,
+      mergeAircraft(old, plane)
+    );
   }
 }
 
-async function scanTile(tile, index) {
-  const key = tileKey(index);
-  const cached = tileCache.get(key);
+function scheduleProviderRequest(name, operation) {
+  const task = providerQueues[name]
+    .catch(() => undefined)
+    .then(async () => {
+      const wait = Math.max(
+        0,
+        PROVIDER_MIN_INTERVAL -
+        (Date.now() - lastProviderRequest[name])
+      );
 
-  if (
-    cached &&
-    Date.now() - cached.time < TILE_CACHE_TTL
-  ) {
-    currentScannedTiles.add(index);
-    rememberAircraft(cached.aircraft);
+      if (wait) await sleep(wait);
 
-    return {
-      ok: true,
-      aircraft: cached.aircraft,
-      cached: true
-    };
-  }
+      lastProviderRequest[name] = Date.now();
+      return operation();
+    });
 
-  const results = [];
-
-  // Primary provider
-  const primary = await getProviderAircraft(
-    providers[0],
-    tile.lat,
-    tile.lon
+  providerQueues[name] = task.then(
+    () => undefined,
+    () => undefined
   );
-
-  results.push(primary);
-
-  // Fallback provider if primary fails
-  if (!primary.ok) {
-    const secondary = await getProviderAircraft(
-      providers[1],
-      tile.lat,
-      tile.lon
-    );
-
-    results.push(secondary);
-  }
-
-  const planes = mergeAircraft(results);
-
-  if (results.some(r => r.ok)) {
-    tileCache.set(key, {
-      time: Date.now(),
-      aircraft: planes
-    });
-
-    while (tileCache.size > MAX_TILE_CACHE) {
-      tileCache.delete(tileCache.keys().next().value);
-    }
-
-    rememberAircraft(planes);
-    currentScannedTiles.add(index);
-  }
-
-  return {
-    ok: results.some(r => r.ok),
-    aircraft: planes,
-    cached: false
-  };
-}
-
-/* ================= BATCH SCAN ================= */
-
-async function performBatch() {
-  let completed = 0;
-  let checked = 0;
-  let successful = 0;
-
-  while (
-    checked < currentGrid.length &&
-    completed < BATCH_SIZE
-  ) {
-    const index = scanCursor;
-
-    scanCursor =
-      (scanCursor + 1) % currentGrid.length;
-
-    checked++;
-
-    if (tileIsCached(index)) {
-      currentScannedTiles.add(index);
-
-      const cached = tileCache.get(tileKey(index));
-      rememberAircraft(cached.aircraft);
-
-      successful++;
-      continue;
-    }
-
-    const result = await scanTile(
-      currentGrid[index],
-      index
-    );
-
-    if (result.ok) successful++;
-
-    completed++;
-  }
-
-  return { successful };
-}
-
-async function runScan(lat, lon, radiusKm) {
-  const task = scanLock.then(async () => {
-    initializeScan(lat, lon, radiusKm);
-    return performBatch();
-  });
-
-  scanLock = task.catch(() => undefined);
 
   return task;
 }
 
-/* ================= CACHE CLEANUP ================= */
+async function getProviderAircraft(name, lat, lon) {
+  return scheduleProviderRequest(name, async () => {
+    const url =
+      `${PROVIDERS[name]}/lat/${lat}/lon/${lon}/dist/${PROVIDER_DISTANCE_NM}`;
 
-function cleanupCache() {
+    const status = providerStatus[name];
+    status.requests++;
+    status.lastCheck = new Date().toISOString();
+
+    const controller = new AbortController();
+    const timeout = setTimeout(
+      () => controller.abort(),
+      REQUEST_TIMEOUT
+    );
+
+    try {
+      const response = await fetch(url, {
+        headers: {
+          Accept: 'application/json',
+          'User-Agent': 'SatelliteExplorerPro/8.0'
+        },
+        signal: controller.signal
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+
+      const data = await response.json();
+
+      const raw = Array.isArray(data.ac)
+        ? data.ac
+        : Array.isArray(data.aircraft)
+          ? data.aircraft
+          : [];
+
+      const planes = raw
+        .map(item => normalizeAircraft(item, name))
+        .filter(Boolean);
+
+      status.available = true;
+      status.successes++;
+      status.aircraft = planes.length;
+      status.lastError = null;
+
+      return { ok: true, planes };
+
+    } catch (error) {
+      status.available = false;
+      status.failures++;
+      status.lastError = error.message;
+
+      return {
+        ok: false,
+        planes: [],
+        error: error.message
+      };
+
+    } finally {
+      clearTimeout(timeout);
+    }
+  });
+}
+
+function generateGrid(centerLat, centerLon, radiusKm) {
+  const grid = [];
+  const coverageRadius =
+    radiusKm + PROVIDER_RADIUS_KM + 50;
+
+  const spacing = GRID_SPACING_KM;
+  const rowStep = spacing * Math.sqrt(3) / 2;
+  const maxRows = Math.ceil(coverageRadius / rowStep);
+  const maxCols = Math.ceil(coverageRadius / spacing);
+  const seen = new Set();
+
+  for (let row = -maxRows; row <= maxRows; row++) {
+    const north = row * rowStep;
+    const offset = Math.abs(row % 2) * spacing / 2;
+
+    for (
+      let col = -maxCols - 1;
+      col <= maxCols + 1;
+      col++
+    ) {
+      const east = col * spacing + offset;
+
+      if (Math.hypot(north, east) > coverageRadius) {
+        continue;
+      }
+
+      const point = destinationPoint(
+        centerLat,
+        centerLon,
+        north,
+        east
+      );
+
+      const key =
+        `${point.lat.toFixed(4)},${point.lon.toFixed(4)}`;
+
+      if (seen.has(key)) continue;
+      seen.add(key);
+
+      grid.push({
+        lat: Number(point.lat.toFixed(5)),
+        lon: Number(point.lon.toFixed(5))
+      });
+    }
+  }
+
+  return grid;
+}
+
+function initializeScan(lat, lon, radiusKm) {
+  const key =
+    `${lat.toFixed(3)}:${lon.toFixed(3)}:${radiusKm}`;
+
+  if (currentScanKey === key) return;
+
+  currentScanKey = key;
+  currentGrid = generateGrid(lat, lon, radiusKm);
+  scanCursor = 0;
+
+  tileStates.clear();
+  aircraftCache.clear();
+
+  for (let i = 0; i < currentGrid.length; i++) {
+    tileStates.set(i, {
+      status: 'pending',
+      attempts: 0,
+      retryAt: 0,
+      lastError: null
+    });
+  }
+}
+
+async function scanTile(index) {
+  const point = currentGrid[index];
+  if (!point) return { ok: false, error: 'Invalid tile' };
+
+  const cacheKey = `${currentScanKey}:${index}`;
+  const cached = tileCache.get(cacheKey);
+
+  if (
+    cached &&
+    Date.now() - cached.timestamp < TILE_CACHE_TTL
+  ) {
+    rememberAircraft(cached.planes);
+    return { ok: true, cached: true };
+  }
+
+  // هر دو منبع مستقل فراخوانی می‌شوند.
+  const results = await Promise.all([
+    getProviderAircraft('adsb.fi', point.lat, point.lon),
+    getProviderAircraft('adsb.lol', point.lat, point.lon)
+  ]);
+
+  const successful = results.filter(item => item.ok);
+
+  if (!successful.length) {
+    return {
+      ok: false,
+      error: 'Both providers failed'
+    };
+  }
+
+  const merged = new Map();
+
+  for (const result of successful) {
+    for (const plane of result.planes) {
+      merged.set(
+        plane.hex,
+        mergeAircraft(merged.get(plane.hex), plane)
+      );
+    }
+  }
+
+  const planes = [...merged.values()];
+
+  rememberAircraft(planes);
+
+  tileCache.set(cacheKey, {
+    timestamp: Date.now(),
+    planes
+  });
+
+  return {
+    ok: true,
+    count: planes.length,
+    providersSucceeded: successful.length
+  };
+}
+
+async function performBatch() {
+  if (!currentGrid.length) return;
+
+  scanRunning = true;
+
+  try {
+    let processed = 0;
+    let checked = 0;
+
+    while (
+      processed < BATCH_SIZE &&
+      checked < currentGrid.length
+    ) {
+      const index = scanCursor;
+      scanCursor = (scanCursor + 1) % currentGrid.length;
+      checked++;
+
+      const state = tileStates.get(index);
+      if (!state || state.status === 'success') continue;
+      if (state.status === 'failed') continue;
+
+      if (state.retryAt && Date.now() < state.retryAt) {
+        continue;
+      }
+
+      processed++;
+      state.attempts++;
+
+      const result = await scanTile(index);
+
+      if (result.ok) {
+        state.status = 'success';
+        state.retryAt = 0;
+        state.lastError = null;
+
+      } else if (state.attempts >= MAX_TILE_ATTEMPTS) {
+        state.status = 'failed';
+        state.retryAt = 0;
+        state.lastError = result.error;
+
+      } else {
+        state.status = 'pending';
+        state.retryAt = Date.now() + RETRY_DELAY;
+        state.lastError = result.error;
+      }
+
+      tileStates.set(index, state);
+    }
+
+  } finally {
+    scanRunning = false;
+  }
+}
+
+function runScan(lat, lon, radiusKm) {
+  const task = scanQueue
+    .catch(() => undefined)
+    .then(async () => {
+      initializeScan(lat, lon, radiusKm);
+      await performBatch();
+    });
+
+  scanQueue = task.catch(() => undefined);
+  return task;
+}
+
+function getScanStatus() {
+  let successful = 0;
+  let failed = 0;
+  let pending = 0;
+
+  for (const state of tileStates.values()) {
+    if (state.status === 'success') successful++;
+    else if (state.status === 'failed') failed++;
+    else pending++;
+  }
+
+  const total = currentGrid.length;
+  const processed = successful + failed;
+
+  return {
+    totalTiles: total,
+    scannedTiles: successful,
+    successful,
+    failed,
+    pending,
+    processed,
+    progressPercent: total
+      ? Math.round(processed / total * 100)
+      : 0,
+    complete: total > 0 && processed === total,
+    coverageComplete: total > 0 && successful === total,
+    batchSize: BATCH_SIZE,
+    running: scanRunning
+  };
+}
+
+function cleanupCaches() {
   const now = Date.now();
 
-  for (const [key, item] of tileCache) {
-    if (now - item.time > TILE_CACHE_TTL) {
+  for (const [key, value] of tileCache.entries()) {
+    if (now - value.timestamp > TILE_CACHE_TTL) {
       tileCache.delete(key);
 
-      if (
-        currentScanKey &&
-        key.startsWith(currentScanKey + ':')
-      ) {
+      if (currentScanKey && key.startsWith(currentScanKey + ':')) {
         const index = Number(
-          key.slice(key.lastIndexOf(':') + 1)
+          key.slice(currentScanKey.length + 1)
         );
 
-        if (Number.isInteger(index)) {
-          currentScannedTiles.delete(index);
+        const state = tileStates.get(index);
+
+        if (state && state.status === 'success') {
+          state.status = 'pending';
+          state.attempts = 0;
+          state.retryAt = 0;
         }
       }
     }
   }
 
-  for (const [hex, item] of aircraftCache) {
-    if (now - item.time > AIRCRAFT_CACHE_TTL) {
+  for (const [hex, plane] of aircraftCache.entries()) {
+    if (now - plane.updatedAt > AIRCRAFT_CACHE_TTL) {
       aircraftCache.delete(hex);
     }
   }
 
-  while (aircraftCache.size > MAX_AIRCRAFT_CACHE) {
-    aircraftCache.delete(
-      aircraftCache.keys().next().value
+  if (tileCache.size > 5000) {
+    const sorted = [...tileCache.entries()].sort(
+      (a, b) => a[1].timestamp - b[1].timestamp
     );
+
+    for (const [key] of sorted.slice(0, tileCache.size - 4000)) {
+      tileCache.delete(key);
+    }
   }
 }
 
-setInterval(cleanupCache, 30000).unref();
+setInterval(cleanupCaches, 30000);
 
-/* ================= ROOT ================= */
+async function aircraftHandler(req, res) {
+  try {
+    const lat = num(req.query.lat);
+    const lon = num(req.query.lon);
+
+    if (lat === null || lon === null) {
+      return res.status(400).json({
+        ok: false,
+        error: 'Valid lat and lon are required'
+      });
+    }
+
+    if (
+      lat < -90 || lat > 90 ||
+      lon < -180 || lon > 180
+    ) {
+      return res.status(400).json({
+        ok: false,
+        error: 'Coordinates out of range'
+      });
+    }
+
+    let radiusKm = TARGET_RADIUS_KM;
+
+    if (req.query.radiusKm !== undefined) {
+      radiusKm = num(req.query.radiusKm);
+
+    } else if (req.query.dist !== undefined) {
+      const dist = num(req.query.dist);
+
+      if (dist === null || dist <= 0) {
+        return res.status(400).json({
+          ok: false,
+          error: 'Invalid dist parameter'
+        });
+      }
+
+      radiusKm = dist <= 250 ? dist * 1.852 : dist;
+    }
+
+    if (
+      radiusKm === null ||
+      radiusKm <= 0 ||
+      radiusKm > TARGET_RADIUS_KM
+    ) {
+      return res.status(400).json({
+        ok: false,
+        error: `radiusKm must be between 1 and ${TARGET_RADIUS_KM}`
+      });
+    }
+
+    await runScan(lat, lon, radiusKm);
+
+    const scan = getScanStatus();
+    const now = Date.now();
+    const aircraft = [];
+
+    for (const plane of aircraftCache.values()) {
+      if (now - plane.updatedAt > AIRCRAFT_CACHE_TTL) continue;
+
+      const distanceKm = haversineKm(
+        lat, lon, plane.lat, plane.lon
+      );
+
+      if (distanceKm <= radiusKm) {
+        aircraft.push({
+          ...plane,
+          distanceKm: Number(distanceKm.toFixed(1))
+        });
+      }
+    }
+
+    aircraft.sort((a, b) => a.distanceKm - b.distanceKm);
+
+    const activeSources = Object.keys(PROVIDERS).filter(
+      name => providerStatus[name].available
+    );
+
+    const ok = activeSources.length > 0;
+
+    return res.status(ok ? 200 : 502).json({
+      ok,
+      version: VERSION,
+      center: { lat, lon },
+      radiusKm,
+      count: aircraft.length,
+      ac: aircraft,
+      coverage: {
+        ...scan,
+        targetRadiusKm: radiusKm,
+        providerRadiusKm: PROVIDER_RADIUS_KM
+      },
+      sources: activeSources,
+      providers: providerStatus,
+      timestamp: new Date().toISOString()
+    });
+
+  } catch (error) {
+    console.error('Aircraft API error:', error);
+
+    return res.status(500).json({
+      ok: false,
+      error: 'Internal server error',
+      message: error.message
+    });
+  }
+}
 
 app.get('/', (req, res) => {
-  res.set('Cache-Control', 'no-store');
-
   res.json({
-    ok: true,
-    service: 'Satellite Explorer Aircraft Proxy',
+    service: 'Satellite Explorer Pro Aircraft Server',
     version: VERSION,
-
+    status: 'online',
     targetRadiusKm: TARGET_RADIUS_KM,
-    providerRadiusKm: PROVIDER_RADIUS_KM,
-
-    providers: providers.map(p => p.name),
-
+    providers: Object.keys(PROVIDERS),
     endpoints: [
-      '/',
       '/health',
       '/api/status',
-      '/api/aircraft',
-      '/api/flights',
-      '/flights'
+      '/api/aircraft?lat=35.7&lon=51.4&radiusKm=2000'
     ]
   });
 });
 
-/* ================= HEALTH ================= */
-
 app.get('/health', (req, res) => {
-  res.set('Cache-Control', 'no-store');
-
   res.json({
     ok: true,
-    status: 'running',
     version: VERSION,
-    time: new Date().toISOString()
+    service: 'Satellite Explorer Pro'
   });
 });
-
-/* ================= STATUS ================= */
 
 app.get('/api/status', (req, res) => {
-  res.set('Cache-Control', 'no-store');
-
-  const total = currentGrid.length;
-  const scanned = currentScannedTiles.size;
-
   res.json({
     ok: true,
     version: VERSION,
-
+    scan: getScanStatus(),
+    providers: providerStatus,
     targetRadiusKm: TARGET_RADIUS_KM,
     providerRadiusKm: PROVIDER_RADIUS_KM,
-    providerRadiusNm: PROVIDER_DISTANCE_NM,
-
     gridSpacingKm: GRID_SPACING_KM,
-    batchSize: BATCH_SIZE,
-
-    totalTiles: total,
-    scannedTiles: scanned,
-
-    progressPercent: total
-      ? Math.round(scanned / total * 100)
-      : 0,
-
-    providers: providerStatus
+    timestamp: new Date().toISOString()
   });
 });
-
-/* ================= AIRCRAFT HANDLER ================= */
-
-async function aircraftHandler(req, res) {
-  res.set('Cache-Control', 'no-store');
-
-  const latValue = req.query.lat ?? req.query.latitude;
-  const lonValue = req.query.lon ?? req.query.longitude;
-
-  if (
-    !validNumber(latValue, -90, 90) ||
-    !validNumber(lonValue, -180, 180)
-  ) {
-    return res.status(400).json({
-      ok: false,
-      error: 'Invalid coordinates',
-      example:
-        '/api/aircraft?lat=35.6892&lon=51.3890&radiusKm=8000'
-    });
-  }
-
-  const lat = Number(latValue);
-  const lon = Number(lonValue);
-
-  let radiusKm = TARGET_RADIUS_KM;
-
-  if (req.query.radiusKm !== undefined) {
-    radiusKm = numericOrNull(req.query.radiusKm);
-
-  } else if (req.query.dist !== undefined) {
-    const legacyDist = numericOrNull(req.query.dist);
-
-    radiusKm = legacyDist === null
-      ? null
-      : (
-          legacyDist <= PROVIDER_DISTANCE_NM
-            ? legacyDist * 1.852
-            : legacyDist
-        );
-  }
-
-  if (
-    radiusKm === null ||
-    radiusKm < 1 ||
-    radiusKm > TARGET_RADIUS_KM
-  ) {
-    return res.status(400).json({
-      ok: false,
-      error: 'Invalid radius',
-      minimumKm: 1,
-      maximumKm: TARGET_RADIUS_KM,
-      note:
-        'radiusKm is measured in kilometers; legacy dist values up to 250 are interpreted as nautical miles.'
-    });
-  }
-
-  try {
-    await runScan(lat, lon, radiusKm);
-
-    const now = Date.now();
-    const aircraft = [];
-
-    for (const item of aircraftCache.values()) {
-      const p = item.plane;
-
-      if (
-        now - item.time <= AIRCRAFT_CACHE_TTL &&
-        haversine(
-          lat,
-          lon,
-          p.lat,
-          p.lon
-        ) <= radiusKm
-      ) {
-        aircraft.push(p);
-      }
-    }
-
-    const availableSources = Object.keys(providerStatus)
-      .filter(name =>
-        providerStatus[name].available === true
-      );
-
-    const failedSources = Object.keys(providerStatus)
-      .filter(name =>
-        providerStatus[name].available === false
-      )
-      .map(name => ({
-        provider: name,
-        error: providerStatus[name].error
-      }));
-
-    const total = currentGrid.length;
-    const scanned = currentScannedTiles.size;
-
-    const progress = total
-      ? Math.round(scanned / total * 100)
-      : 0;
-
-    const hasUsableData =
-      availableSources.length > 0 ||
-      aircraft.length > 0;
-
-    console.log(
-      `[AIRCRAFT] lat=${lat} lon=${lon} ` +
-      `radius=${radiusKm}km ` +
-      `grid=${total} progress=${progress}% ` +
-      `planes=${aircraft.length}`
-    );
-
-    return res.status(hasUsableData ? 200 : 502).json({
-      ok: hasUsableData,
-
-      service: 'Satellite Explorer Aircraft Proxy',
-      version: VERSION,
-
-      ac: aircraft,
-      total: aircraft.length,
-
-      source: availableSources.join(',') || null,
-      availableSources,
-      failedSources,
-
-      coverage: {
-        targetRadiusKm: radiusKm,
-
-        providerRadiusNm: PROVIDER_DISTANCE_NM,
-        providerRadiusKm: PROVIDER_RADIUS_KM,
-
-        gridSpacingKm: GRID_SPACING_KM,
-
-        totalTiles: total,
-        scannedTiles: scanned,
-
-        progressPercent: progress,
-
-        batchSize: BATCH_SIZE,
-
-        complete:
-          total > 0 &&
-          scanned >= total
-      },
-
-      now: Date.now()
-    });
-
-  } catch (error) {
-    console.error('[AIRCRAFT HANDLER]', error);
-
-    return res.status(502).json({
-      ok: false,
-      error: 'Aircraft scan failed',
-      message: error.message,
-      ac: []
-    });
-  }
-}
-
-/* ================= ROUTES ================= */
 
 app.get('/api/aircraft', aircraftHandler);
 app.get('/api/flights', aircraftHandler);
 app.get('/flights', aircraftHandler);
 
-/* ================= 404 ================= */
+app.use((error, req, res, next) => {
+  console.error('Server error:', error);
 
-app.use((req, res) => {
-  res.status(404).json({
+  if (res.headersSent) return next(error);
+
+  res.status(500).json({
     ok: false,
-    error: 'Endpoint not found',
-    requested: req.originalUrl,
-
-    availableEndpoints: [
-      '/',
-      '/health',
-      '/api/status',
-      '/api/aircraft',
-      '/api/flights',
-      '/flights'
-    ]
+    error: error.message || 'Server error'
   });
 });
-
-/* ================= ERROR HANDLER ================= */
-
-app.use((err, req, res, next) => {
-  console.error('[SERVER ERROR]', err.message);
-
-  if (res.headersSent) {
-    return next(err);
-  }
-
-  res.status(err.status || 500).json({
-    ok: false,
-
-    error: err.status === 403
-      ? 'Origin not allowed by CORS'
-      : 'Internal server error'
-  });
-});
-
-/* ================= START ================= */
 
 app.listen(PORT, '0.0.0.0', () => {
-  console.log('==========================================');
-  console.log('SATELLITE EXPLORER AIRCRAFT PROXY');
-
-  console.log(`VERSION: ${VERSION}`);
-  console.log(`TARGET RADIUS: ${TARGET_RADIUS_KM} KM`);
-
-  console.log(
-    `PROVIDER RADIUS: ${PROVIDER_DISTANCE_NM} NM (${PROVIDER_RADIUS_KM} KM)`
-  );
-
-  console.log(`GRID SPACING: ${GRID_SPACING_KM} KM`);
-  console.log(`BATCH SIZE: ${BATCH_SIZE}`);
-
-  console.log('PROVIDERS: ADSB.FI + ADSB.LOL');
-  console.log(`SERVER PORT: ${PORT}`);
-
-  console.log('==========================================');
+  console.log('======================================');
+  console.log('SATELLITE EXPLORER PRO AIRCRAFT SERVER');
+  console.log('VERSION:', VERSION);
+  console.log('PORT:', PORT);
+  console.log('TARGET RADIUS:', TARGET_RADIUS_KM, 'KM');
+  console.log('PROVIDERS:', Object.keys(PROVIDERS).join(', '));
+  console.log('======================================');
 });
