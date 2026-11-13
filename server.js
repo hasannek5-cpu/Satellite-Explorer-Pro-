@@ -3,7 +3,7 @@
    SATELLITE EXPLORER PRO-1
    GLOBAL AIRCRAFT PROXY SERVER
    ADSB.FI + ADSB.LOL
-   VERSION 6.0.0
+   VERSION 7.0.0
    TARGET RADIUS: 8000 KM
    NODE.JS 18+
    ========================================================= */
@@ -18,8 +18,43 @@ const PORT = process.env.PORT || 10000;
 
 app.disable('x-powered-by');
 
+/* ================= CONFIG ================= */
+
+const VERSION = '7.0.0';
+
+const TARGET_RADIUS_KM = 8000;
+
+const MAX_DISTANCE_NM = 250;
+const MAX_DISTANCE_KM = 463;
+
+const GRID_SPACING_KM = 600;
+
+const BATCH_SIZE = 2;
+
+const REQUEST_TIMEOUT = 12000;
+
+const PROVIDER_MIN_INTERVAL = 1150;
+
+const TILE_CACHE_TTL = 10 * 60 * 1000;
+const AIRCRAFT_CACHE_TTL = 15 * 60 * 1000;
+
+const LOL_EVERY_N_TILES = 4;
+
+const MAX_AIRCRAFT_CACHE = 30000;
+
 const ALLOWED_ORIGINS = [
   'https://hasannek5-cpu.github.io'
+];
+
+const providers = [
+  {
+    name: 'adsb.fi',
+    base: 'https://opendata.adsb.fi/api/v3'
+  },
+  {
+    name: 'adsb.lol',
+    base: 'https://api.adsb.lol/v2'
+  }
 ];
 
 app.use(cors({
@@ -38,56 +73,41 @@ app.use(cors({
 
 app.use(express.json({ limit: '20kb' }));
 
-/* ================= CONFIG ================= */
-
-const VERSION = '6.0.0';
-
-const TARGET_RADIUS_KM = 8000;
-
-// Maximum provider radius: 250 nautical miles
-const MAX_DISTANCE_NM = 250;
-const MAX_DISTANCE_KM = 463;
-
-// Grid spacing, with overlapping coverage
-const GRID_X_KM = 400;
-const GRID_Y_KM = 350;
-
-// Six locations per API request
-const BATCH_SIZE = 6;
-
-const REQUEST_TIMEOUT = 12000;
-const TILE_CACHE_TTL = 30000;
-const AIRCRAFT_CACHE_TTL = 60000;
-
-const providers = [
-  {
-    name: 'adsb.fi',
-    base: 'https://opendata.adsb.fi/api/v3'
-  },
-  {
-    name: 'adsb.lol',
-    base: 'https://api.adsb.lol/v2'
-  }
-];
+/* ================= STATE ================= */
 
 const providerStatus = {};
 
-for (const p of providers) {
-  providerStatus[p.name] = {
+for (const provider of providers) {
+  providerStatus[provider.name] = {
     available: null,
     lastCheck: null,
     error: null,
-    aircraft: 0
+    aircraft: 0,
+    requests: 0
   };
 }
 
 const tileCache = new Map();
 const aircraftCache = new Map();
 
+let currentScanKey = null;
+let currentGrid = [];
+let currentScannedTiles = new Set();
+
 let scanCursor = 0;
-let scannedTiles = new Set();
+let scanLock = null;
+let tileCounter = 0;
+
+const lastProviderRequest = {
+  'adsb.fi': 0,
+  'adsb.lol': 0
+};
 
 /* ================= HELPERS ================= */
+
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
 
 function numericOrNull(value) {
   if (
@@ -131,7 +151,6 @@ function cleanText(value) {
 
 function haversine(lat1, lon1, lat2, lon2) {
   const R = 6371;
-
   const rad = n => n * Math.PI / 180;
 
   const dLat = rad(lat2 - lat1);
@@ -148,7 +167,11 @@ function haversine(lat1, lon1, lat2, lon2) {
   );
 }
 
-/* ================= GRID GENERATOR ================= */
+function normalizeLongitude(lon) {
+  return ((lon + 540) % 360) - 180;
+}
+
+/* ================= GEOGRAPHY ================= */
 
 function destinationPoint(lat, lon, bearing, distanceKm) {
   const R = 6371;
@@ -177,20 +200,21 @@ function destinationPoint(lat, lon, bearing, distanceKm) {
 
   return {
     lat: deg(lat2),
-    lon: ((deg(lon2) + 540) % 360) - 180
+    lon: normalizeLongitude(deg(lon2))
   };
 }
 
 function generateGrid(centerLat, centerLon, radiusKm) {
   const points = [];
 
-  const maxY = Math.ceil(radiusKm / GRID_Y_KM);
-  const maxX = Math.ceil(radiusKm / GRID_X_KM);
+  const maxSteps = Math.ceil(
+    radiusKm / GRID_SPACING_KM
+  );
 
-  for (let y = -maxY; y <= maxY; y++) {
-    for (let x = -maxX; x <= maxX; x++) {
-      const east = x * GRID_X_KM;
-      const north = y * GRID_Y_KM;
+  for (let y = -maxSteps; y <= maxSteps; y++) {
+    for (let x = -maxSteps; x <= maxSteps; x++) {
+      const east = x * GRID_SPACING_KM;
+      const north = y * GRID_SPACING_KM;
 
       const distance = Math.hypot(east, north);
 
@@ -222,46 +246,7 @@ function generateGrid(centerLat, centerLon, radiusKm) {
   return points;
 }
 
-/* ================= FETCH ================= */
-
-async function fetchJSON(url) {
-  const controller = new AbortController();
-
-  const timer = setTimeout(
-    () => controller.abort(),
-    REQUEST_TIMEOUT
-  );
-
-  try {
-    const response = await fetch(url, {
-      method: 'GET',
-      cache: 'no-store',
-      headers: {
-        Accept: 'application/json',
-        'User-Agent': 'SatelliteExplorerPro/6.0'
-      },
-      signal: controller.signal
-    });
-
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
-    }
-
-    return await response.json();
-
-  } catch (error) {
-    if (error.name === 'AbortError') {
-      throw new Error('Provider request timeout');
-    }
-
-    throw error;
-
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-/* ================= NORMALIZE ================= */
+/* ================= NORMALIZATION ================= */
 
 function normalizeAircraft(data, provider) {
   const list = Array.isArray(data?.ac)
@@ -286,11 +271,10 @@ function normalizeAircraft(data, provider) {
       lat,
       lon,
 
-      alt_baro: a.alt_baro ?? a.altitude ?? null,
-      alt_geom: a.alt_geom ?? null,
+      alt_baro: numericOrNull(a.alt_baro ?? a.altitude),
+      alt_geom: numericOrNull(a.alt_geom),
 
       gs: numericOrNull(a.gs ?? a.speed),
-
       track: numericOrNull(a.track ?? a.heading),
 
       squawk: cleanText(a.squawk),
@@ -307,7 +291,6 @@ function normalizeAircraft(data, provider) {
 
       source: provider
     };
-
   }).filter(a =>
     a.hex &&
     validNumber(a.lat, -90, 90) &&
@@ -315,11 +298,78 @@ function normalizeAircraft(data, provider) {
   );
 }
 
-/* ================= PROVIDER ================= */
+/* ================= PROVIDER REQUEST ================= */
+
+async function fetchJSON(url) {
+  const controller = new AbortController();
+
+  const timer = setTimeout(
+    () => controller.abort(),
+    REQUEST_TIMEOUT
+  );
+
+  try {
+    const response = await fetch(url, {
+      method: 'GET',
+      cache: 'no-store',
+      headers: {
+        Accept: 'application/json',
+        'User-Agent': 'SatelliteExplorerPro/7.0'
+      },
+      signal: controller.signal
+    });
+
+    const body = await response.text();
+
+    if (!response.ok) {
+      throw new Error(
+        `HTTP ${response.status}: ${body.slice(0, 350)}`
+      );
+    }
+
+    try {
+      return JSON.parse(body);
+    } catch {
+      throw new Error('Invalid JSON response from provider');
+    }
+
+  } catch (error) {
+    if (error.name === 'AbortError') {
+      throw new Error('Provider request timeout');
+    }
+
+    throw error;
+
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function waitProviderLimit(providerName) {
+  const elapsed =
+    Date.now() - lastProviderRequest[providerName];
+
+  const wait = Math.max(
+    0,
+    PROVIDER_MIN_INTERVAL - elapsed
+  );
+
+  if (wait > 0) {
+    await sleep(wait);
+  }
+
+  lastProviderRequest[providerName] = Date.now();
+}
 
 async function getProviderAircraft(provider, lat, lon) {
+  await waitProviderLimit(provider.name);
+
   const url =
-    `${provider.base}/lat/${lat}/lon/${lon}/dist/${MAX_DISTANCE_NM}`;
+    `${provider.base}/lat/${lat.toFixed(5)}` +
+    `/lon/${lon.toFixed(5)}` +
+    `/dist/${MAX_DISTANCE_NM}`;
+
+  providerStatus[provider.name].requests++;
 
   try {
     const data = await fetchJSON(url);
@@ -330,6 +380,7 @@ async function getProviderAircraft(provider, lat, lon) {
     );
 
     providerStatus[provider.name] = {
+      ...providerStatus[provider.name],
       available: true,
       lastCheck: new Date().toISOString(),
       error: null,
@@ -344,6 +395,7 @@ async function getProviderAircraft(provider, lat, lon) {
 
   } catch (error) {
     providerStatus[provider.name] = {
+      ...providerStatus[provider.name],
       available: false,
       lastCheck: new Date().toISOString(),
       error: error.message,
@@ -385,7 +437,7 @@ function mergeAircraft(results) {
   const map = new Map();
 
   for (const result of results) {
-    for (const plane of result.aircraft) {
+    for (const plane of result.aircraft || []) {
       const previous = map.get(plane.hex);
 
       if (!previous) {
@@ -419,98 +471,164 @@ function mergeAircraft(results) {
   return Array.from(map.values());
 }
 
-/* ================= TILE SCANNING ================= */
+/* ================= SCAN STATE ================= */
+
+function initializeScan(lat, lon, radiusKm) {
+  const key = [
+    lat.toFixed(3),
+    lon.toFixed(3),
+    radiusKm
+  ].join(':');
+
+  if (key === currentScanKey) {
+    return;
+  }
+
+  currentScanKey = key;
+
+  currentGrid = generateGrid(
+    lat,
+    lon,
+    radiusKm
+  );
+
+  currentScannedTiles = new Set();
+
+  scanCursor = 0;
+  tileCounter = 0;
+
+  aircraftCache.clear();
+
+  console.log(
+    `[SCAN] New grid: ${currentGrid.length} tiles`
+  );
+}
+
+function getTileKey(index) {
+  return `${currentScanKey}:${index}`;
+}
+
+function isTileCached(index) {
+  const item = tileCache.get(getTileKey(index));
+
+  return Boolean(
+    item &&
+    Date.now() - item.time < TILE_CACHE_TTL
+  );
+}
+
+/* ================= TILE SCAN ================= */
 
 async function scanTile(tile, index) {
-  const now = Date.now();
+  const key = getTileKey(index);
 
-  const cached = tileCache.get(index);
+  const cached = tileCache.get(key);
 
   if (
     cached &&
-    now - cached.time < TILE_CACHE_TTL
+    Date.now() - cached.time < TILE_CACHE_TTL
   ) {
+    currentScannedTiles.add(index);
     return cached.aircraft;
   }
 
-  const results = await Promise.all(
-    providers.map(provider =>
-      getProviderAircraft(
-        provider,
-        tile.lat,
-        tile.lon
-      )
-    )
+  const results = [];
+
+  // Primary provider: ADSB.fi
+  const primary = await getProviderAircraft(
+    providers[0],
+    tile.lat,
+    tile.lon
   );
+
+  results.push(primary);
+
+  // Secondary provider: limited periodic requests
+  tileCounter++;
+
+  if (tileCounter % LOL_EVERY_N_TILES === 0) {
+    const secondary = await getProviderAircraft(
+      providers[1],
+      tile.lat,
+      tile.lon
+    );
+
+    results.push(secondary);
+  }
 
   const aircraft = mergeAircraft(results);
 
-  tileCache.set(index, {
+  tileCache.set(key, {
     time: Date.now(),
     aircraft
   });
 
   for (const plane of aircraft) {
+    const previous = aircraftCache.get(plane.hex);
+
+    const merged = previous
+      ? mergeAircraft([
+          { aircraft: [previous.plane] },
+          { aircraft: [plane] }
+        ])[0]
+      : plane;
+
     aircraftCache.set(plane.hex, {
-      plane,
+      plane: merged,
       time: Date.now()
     });
   }
 
+  currentScannedTiles.add(index);
+
   return aircraft;
 }
 
-async function scanBatch(grid) {
-  const selected = [];
+/* ================= BATCH SCAN ================= */
 
+async function performBatch() {
+  if (!currentGrid.length) return;
+
+  let completed = 0;
   let checked = 0;
 
-  for (
-    let i = 0;
-    i < grid.length && checked < grid.length;
-    i++
+  while (
+    checked < currentGrid.length &&
+    completed < BATCH_SIZE
   ) {
-    const index = scanCursor % grid.length;
+    const index = scanCursor;
 
-    scanCursor = (scanCursor + 1) % grid.length;
+    scanCursor =
+      (scanCursor + 1) % currentGrid.length;
+
     checked++;
 
-    const cached = tileCache.get(index);
-
-    if (
-      cached &&
-      Date.now() - cached.time < TILE_CACHE_TTL
-    ) {
+    if (isTileCached(index)) {
+      currentScannedTiles.add(index);
       continue;
     }
 
-    selected.push({
-      tile: grid[index],
-      index
-    });
+    const tile = currentGrid[index];
 
-    if (selected.length >= BATCH_SIZE) break;
+    await scanTile(tile, index);
+
+    completed++;
+  }
+}
+
+async function scanBatch() {
+  if (scanLock) {
+    await scanLock;
+    return;
   }
 
-  const results = await Promise.all(
-    selected.map(item =>
-      scanTile(item.tile, item.index)
-    )
-  );
+  scanLock = performBatch();
 
-  for (const item of selected) {
-    scannedTiles.add(item.index);
+  try {
+    await scanLock;
+  } finally {
+    scanLock = null;
   }
-
-  if (scannedTiles.size >= grid.length) {
-    scannedTiles.clear();
-  }
-
-  return mergeAircraft(
-    results.map(aircraft => ({
-      aircraft
-    }))
-  );
 }
 
 /* ================= CACHE CLEANUP ================= */
@@ -518,26 +636,34 @@ async function scanBatch(grid) {
 function cleanupCache() {
   const now = Date.now();
 
+  for (const [key, item] of tileCache) {
+    if (now - item.time > TILE_CACHE_TTL) {
+      tileCache.delete(key);
+
+      if (currentScanKey && key.startsWith(currentScanKey + ':')) {
+        const index = Number(key.split(':').pop());
+        if (Number.isInteger(index)) {
+          currentScannedTiles.delete(index);
+        }
+      }
+    }
+  }
+
   for (const [hex, item] of aircraftCache) {
-    if (
-      now - item.time > AIRCRAFT_CACHE_TTL
-    ) {
+    if (now - item.time > AIRCRAFT_CACHE_TTL) {
       aircraftCache.delete(hex);
     }
   }
 
-  for (const [index, item] of tileCache) {
-    if (
-      now - item.time > TILE_CACHE_TTL
-    ) {
-      tileCache.delete(index);
-    }
+  while (aircraftCache.size > MAX_AIRCRAFT_CACHE) {
+    const oldest = aircraftCache.keys().next().value;
+    aircraftCache.delete(oldest);
   }
 }
 
-setInterval(cleanupCache, 15000).unref();
+setInterval(cleanupCache, 30000).unref();
 
-/* ================= ROUTES ================= */
+/* ================= ROOT ================= */
 
 app.get('/', (req, res) => {
   res.set('Cache-Control', 'no-store');
@@ -547,6 +673,7 @@ app.get('/', (req, res) => {
     service: 'Satellite Explorer Aircraft Proxy',
     version: VERSION,
     targetRadiusKm: TARGET_RADIUS_KM,
+    providerRadiusKm: MAX_DISTANCE_KM,
     providers: providers.map(p => p.name),
     endpoints: [
       '/',
@@ -559,6 +686,8 @@ app.get('/', (req, res) => {
   });
 });
 
+/* ================= HEALTH ================= */
+
 app.get('/health', (req, res) => {
   res.set('Cache-Control', 'no-store');
 
@@ -570,14 +699,31 @@ app.get('/health', (req, res) => {
   });
 });
 
+/* ================= STATUS ================= */
+
 app.get('/api/status', (req, res) => {
   res.set('Cache-Control', 'no-store');
 
   res.json({
     ok: true,
     version: VERSION,
+
     targetRadiusKm: TARGET_RADIUS_KM,
+    providerRadiusKm: MAX_DISTANCE_KM,
+
+    gridSpacingKm: GRID_SPACING_KM,
     batchSize: BATCH_SIZE,
+
+    totalTiles: currentGrid.length,
+    scannedTiles: currentScannedTiles.size,
+
+    progressPercent: currentGrid.length
+      ? Math.round(
+          currentScannedTiles.size /
+          currentGrid.length * 100
+        )
+      : 0,
+
     providers: providerStatus
   });
 });
@@ -598,7 +744,7 @@ async function aircraftHandler(req, res) {
       ok: false,
       error: 'Invalid coordinates',
       example:
-        '/api/aircraft?lat=35.6892&lon=51.3890&dist=8000'
+        '/api/aircraft?lat=35.6892&lon=51.3890&radiusKm=8000'
     });
   }
 
@@ -625,31 +771,21 @@ async function aircraftHandler(req, res) {
     });
   }
 
-  // Backward compatibility:
-  // Legacy dist values up to 250 mean nautical miles.
-  // Larger values and radiusKm mean kilometers.
-
+  // radiusKm is always kilometers.
+  // Legacy dist values <= 250 are nautical miles.
   const radiusKm =
-    req.query.radiusKm !== undefined ||
-    radius > MAX_DISTANCE_NM
+    req.query.radiusKm !== undefined
       ? radius
-      : radius * 1.852;
-
-  const grid = generateGrid(
-    lat,
-    lon,
-    radiusKm
-  );
-
-  if (!grid.length) {
-    return res.status(400).json({
-      ok: false,
-      error: 'Unable to generate coverage grid'
-    });
-  }
+      : radius <= MAX_DISTANCE_NM
+        ? radius * 1.852
+        : radius;
 
   try {
-    await scanBatch(grid);
+    initializeScan(lat, lon, radiusKm);
+
+    // Scan only a small number of tiles per request.
+    // This prevents sending hundreds of requests at once.
+    await scanBatch();
 
     const now = Date.now();
 
@@ -683,23 +819,27 @@ async function aircraftHandler(req, res) {
         error: providerStatus[name].error
       }));
 
-    const ok = availableSources.length > 0;
+    const progress = currentGrid.length
+      ? Math.round(
+          currentScannedTiles.size /
+          currentGrid.length * 100
+        )
+      : 0;
 
-    const progress = Math.round(
-      (scannedTiles.size / grid.length) * 100
-    );
+    const ok = availableSources.length > 0;
 
     console.log(
       `[AIRCRAFT] ${new Date().toISOString()} ` +
       `lat=${lat} lon=${lon} ` +
       `radius=${radiusKm}km ` +
-      `grid=${grid.length} ` +
+      `grid=${currentGrid.length} ` +
       `progress=${progress}% ` +
       `planes=${aircraft.length}`
     );
 
     return res.status(ok ? 200 : 502).json({
       ok,
+
       service: 'Satellite Explorer Aircraft Proxy',
       version: VERSION,
 
@@ -712,13 +852,22 @@ async function aircraftHandler(req, res) {
 
       coverage: {
         targetRadiusKm: radiusKm,
+
         providerRadiusNm: MAX_DISTANCE_NM,
         providerRadiusKm: MAX_DISTANCE_KM,
-        totalTiles: grid.length,
-        scannedTiles: scannedTiles.size,
+
+        gridSpacingKm: GRID_SPACING_KM,
+
+        totalTiles: currentGrid.length,
+        scannedTiles: currentScannedTiles.size,
+
         progressPercent: progress,
+
         batchSize: BATCH_SIZE,
-        complete: scannedTiles.size >= grid.length
+
+        complete:
+          currentGrid.length > 0 &&
+          currentScannedTiles.size >= currentGrid.length
       },
 
       now: Date.now()
@@ -735,6 +884,8 @@ async function aircraftHandler(req, res) {
     });
   }
 }
+
+/* ================= ROUTES ================= */
 
 app.get('/api/aircraft', aircraftHandler);
 app.get('/api/flights', aircraftHandler);
@@ -783,6 +934,7 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`VERSION: ${VERSION}`);
   console.log(`TARGET RADIUS: ${TARGET_RADIUS_KM} KM`);
   console.log(`PROVIDER RADIUS: ${MAX_DISTANCE_NM} NM`);
+  console.log(`GRID SPACING: ${GRID_SPACING_KM} KM`);
   console.log(`BATCH SIZE: ${BATCH_SIZE}`);
   console.log('PROVIDERS: ADSB.FI + ADSB.LOL');
   console.log(`SERVER PORT: ${PORT}`);
