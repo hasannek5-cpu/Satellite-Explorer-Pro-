@@ -1,7 +1,7 @@
 
 /* =========================================================
    SATELLITE EXPLORER PRO-1
-   GLOBAL AIRCRAFT PROXY SERVER
+   GLOBAL AIRCRAFT VPN SERVER
    ADSB.FI + ADSB.LOL
    VERSION 7.0.0
    TARGET RADIUS: 8000 KM
