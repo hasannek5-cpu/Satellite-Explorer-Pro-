@@ -1,6 +1,6 @@
 
 /* =====================================================
-   🛰️ SATELLITE EXPLORER PRO
+   🛰️ SATELLITE EXPLORER PRO-
    COMPLETE INTEGRATED VERSION
    GPS + SATELLITES + ORBIT + PASS PREDICTION
    RADIO INFORMATION + LIVE AIRCRAFT
@@ -173,7 +173,7 @@ async function loadSatellites() {
         const response = await fetch(url);
 
         if (!response.ok) {
-          throw new Error('HTTP ' + response.status);
+          throw new Error('HTTPs ' + response.status);
         }
 
         return parseTLE(await response.text(), group);
@@ -474,7 +474,7 @@ function renderSatelliteList() {
 }
 
 // =====================================================
-// 13. GPS
+// 13. GPS,
 // =====================================================
 
 function getLocation() {
@@ -650,7 +650,7 @@ function predictSatellitePass(norad) {
   }
 
   passSearchBusy = true;
-  panel.innerText = 'در حال محاسبه عبورهای ۲۴ ساعت آینده...';
+  panel.innerText = 'در حال محاسبه عبورهای ۱۲۰ ساعت آینده...';
 
   setTimeout(() => {
     try {
@@ -743,7 +743,7 @@ function predictSatellitePass(norad) {
         panel.innerHTML = `
           <h3>🛰️ نتیجه پیش‌بینی</h3>
           <p>ماهواره: ${escapeHTML(sat.name)}</p>
-          <p>در ۲۴ ساعت آینده عبور قابل مشاهده‌ای پیش‌بینی نشد.</p>
+          <p>در ۱۲۰ ساعت آینده عبور قابل مشاهده‌ای پیش‌بینی نشد.</p>
         `;
         return;
       }
@@ -884,7 +884,7 @@ function renderSatelliteCommunication() {
 }
 
 // =====================================================
-// 19. LIVE AIRCRAFT TRACKING PRO
+// 19. LIVE AIRCRAFT TRACKING PRO-
 // MAP CENTER + GPS + AUTO REFRESH
 // =====================================================
 
@@ -895,7 +895,7 @@ const AIRCRAFT_MAX_RADIUS_NM = 250;
 const AIRCRAFT_MIN_RADIUS_NM = 25;
 
 const AIRCRAFT_API =
-  'https://satellite-explorer-pro.onrender.com/api/aircraft';
+  'https://satellite-explorer-pro-.onrender.com/api/aircraft';
 
 const aircraftLayer = L.layerGroup().addTo(map);
 const aircraftMarkers = new Map();
@@ -1379,15 +1379,15 @@ async function fetchAircraft() {
 
     let message = error.message || 'خطای نامشخص';
 
-    if (message.includes('HTTP 502')) {
+    if (message.includes('HTTPS 502')) {
       message =
         'سرور دریافت پروازها موقتاً پاسخگو نیست (502).';
 
-    } else if (message.includes('HTTP 503')) {
+    } else if (message.includes('HTTPS 503')) {
       message =
         'سرویس پرواز موقتاً در دسترس نیست (503).';
 
-    } else if (message.includes('HTTP 504')) {
+    } else if (message.includes('HTTPS 504')) {
       message =
         'زمان پاسخ سرور تمام شد (504).';
 
@@ -1495,11 +1495,11 @@ setInterval(
 );
 
 console.log(
-  '🛰️ Satellite Explorer Pro Loaded Successfully'
+  '🛰️ Satellite Explorer Pro- Loaded Successfully'
 );
 
 console.log(
-  '✈️ Live Aircraft Tracking PRO Loaded Successfully'
+  '✈️ Live Aircraft Tracking PRO- Loaded Successfully'
 );
 
 console.log(
