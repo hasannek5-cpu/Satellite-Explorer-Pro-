@@ -25,9 +25,9 @@ const VERSION = '7.0.0';
 const TARGET_RADIUS_KM = 8000;
 
 const MAX_DISTANCE_NM = 250;
-const MAX_DISTANCE_KM = 463;
+const MAX_DISTANCE_KM = 8000;
 
-const GRID_SPACING_KM = 600;
+const GRID_SPACING_KM = 8000;
 
 const BATCH_SIZE = 2;
 
@@ -83,7 +83,7 @@ for (const provider of providers) {
     lastCheck: null,
     error: null,
     aircraft: 0,
-    requests: 0
+    requests: 0,
   };
 }
 
@@ -314,7 +314,7 @@ async function fetchJSON(url) {
       cache: 'no-store',
       headers: {
         Accept: 'application/json',
-        'User-Agent': 'SatelliteExplorerPro/7.0'
+        'User-Agent': 'SatelliteExplorerPro-/7.0'
       },
       signal: controller.signal
     });
@@ -670,7 +670,7 @@ app.get('/', (req, res) => {
 
   res.json({
     ok: true,
-    service: 'Satellite Explorer Aircraft Proxy',
+    service: 'Satellite Explorer Aircraft VPN',
     version: VERSION,
     targetRadiusKm: TARGET_RADIUS_KM,
     providerRadiusKm: MAX_DISTANCE_KM,
@@ -930,7 +930,7 @@ app.use((err, req, res, next) => {
 
 app.listen(PORT, '0.0.0.0', () => {
   console.log('==========================================');
-  console.log('SATELLITE EXPLORER AIRCRAFT PROXY');
+  console.log('SATELLITE EXPLORER AIRCRAFT VPN');
   console.log(`VERSION: ${VERSION}`);
   console.log(`TARGET RADIUS: ${TARGET_RADIUS_KM} KM`);
   console.log(`PROVIDER RADIUS: ${MAX_DISTANCE_NM} NM`);
