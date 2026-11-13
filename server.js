@@ -1,9 +1,9 @@
 
 /* =========================================================
    SATELLITE EXPLORER PRO-1
-   GLOBAL AIRCRAFT VPN SERVER
+   GLOBAL AIRCRAFT PROXY SERVER
    ADSB.FI + ADSB.LOL
-   VERSION 7.0.0
+   VERSION 7.1.0
    TARGET RADIUS: 8000 KM
    NODE.JS 18+
    ========================================================= */
@@ -14,33 +14,29 @@ const express = require('express');
 const cors = require('cors');
 
 const app = express();
-const PORT = process.env.PORT || 10000;
+const PORT = Number(process.env.PORT) || 10000;
 
 app.disable('x-powered-by');
 
 /* ================= CONFIG ================= */
 
-const VERSION = '7.0.0';
-
+const VERSION = '7.1.0';
 const TARGET_RADIUS_KM = 8000;
 
-const MAX_DISTANCE_NM = 250;
-const MAX_DISTANCE_KM = 8000;
+const PROVIDER_DISTANCE_NM = 250;
+const PROVIDER_RADIUS_KM = PROVIDER_DISTANCE_NM * 1.852;
 
-const GRID_SPACING_KM = 8000;
-
+const GRID_SPACING_KM = 700;
 const BATCH_SIZE = 2;
 
-const REQUEST_TIMEOUT = 12000;
+const REQUEST_TIMEOUT = 10000;
+const PROVIDER_MIN_INTERVAL = 1100;
 
-const PROVIDER_MIN_INTERVAL = 1150;
-
-const TILE_CACHE_TTL = 10 * 60 * 1000;
-const AIRCRAFT_CACHE_TTL = 15 * 60 * 1000;
-
-const LOL_EVERY_N_TILES = 4;
+const TILE_CACHE_TTL = 5 * 60 * 1000;
+const AIRCRAFT_CACHE_TTL = 90 * 1000;
 
 const MAX_AIRCRAFT_CACHE = 30000;
+const MAX_TILE_CACHE = 2500;
 
 const ALLOWED_ORIGINS = [
   'https://hasannek5-cpu.github.io'
@@ -65,7 +61,7 @@ app.use(cors({
 
     const error = new Error('Origin not allowed by CORS');
     error.status = 403;
-    callback(error);
+    return callback(error);
   },
   methods: ['GET', 'OPTIONS'],
   allowedHeaders: ['Content-Type']
@@ -75,17 +71,18 @@ app.use(express.json({ limit: '20kb' }));
 
 /* ================= STATE ================= */
 
-const providerStatus = {};
-
-for (const provider of providers) {
-  providerStatus[provider.name] = {
-    available: null,
-    lastCheck: null,
-    error: null,
-    aircraft: 0,
-    requests: 0,
-  };
-}
+const providerStatus = Object.fromEntries(
+  providers.map(p => [
+    p.name,
+    {
+      available: null,
+      lastCheck: null,
+      error: null,
+      aircraft: 0,
+      requests: 0
+    }
+  ])
+);
 
 const tileCache = new Map();
 const aircraftCache = new Map();
@@ -95,8 +92,7 @@ let currentGrid = [];
 let currentScannedTiles = new Set();
 
 let scanCursor = 0;
-let scanLock = null;
-let tileCounter = 0;
+let scanLock = Promise.resolve();
 
 const lastProviderRequest = {
   'adsb.fi': 0,
@@ -134,13 +130,10 @@ function booleanValue(value) {
   if (typeof value === 'boolean') return value;
   if (typeof value === 'number') return value !== 0;
 
-  if (typeof value === 'string') {
-    return ['true', '1', 'yes'].includes(
+  return typeof value === 'string' &&
+    ['true', '1', 'yes'].includes(
       value.trim().toLowerCase()
     );
-  }
-
-  return false;
 }
 
 function cleanText(value) {
@@ -204,42 +197,52 @@ function destinationPoint(lat, lon, bearing, distanceKm) {
   };
 }
 
+/* ================= GRID ================= */
+
 function generateGrid(centerLat, centerLon, radiusKm) {
-  const points = [];
+  const points = [
+    { lat: centerLat, lon: centerLon }
+  ];
 
-  const maxSteps = Math.ceil(
-    radiusKm / GRID_SPACING_KM
-  );
+  const rowStep = GRID_SPACING_KM * Math.sqrt(3) / 2;
+  const maxRows = Math.ceil(radiusKm / rowStep);
 
-  for (let y = -maxSteps; y <= maxSteps; y++) {
-    for (let x = -maxSteps; x <= maxSteps; x++) {
-      const east = x * GRID_SPACING_KM;
-      const north = y * GRID_SPACING_KM;
+  const seen = new Set([
+    `${centerLat.toFixed(4)}:${centerLon.toFixed(4)}`
+  ]);
 
+  for (let row = -maxRows; row <= maxRows; row++) {
+    const north = row * rowStep;
+
+    const offset = (Math.abs(row) % 2)
+      ? GRID_SPACING_KM / 2
+      : 0;
+
+    const maxCols = Math.ceil(radiusKm / GRID_SPACING_KM) + 1;
+
+    for (let col = -maxCols; col <= maxCols; col++) {
+      const east = col * GRID_SPACING_KM + offset;
       const distance = Math.hypot(east, north);
 
-      if (distance > radiusKm) continue;
-
-      if (distance === 0) {
-        points.push({
-          lat: centerLat,
-          lon: centerLon
-        });
-
-        continue;
-      }
+      if (distance < 1 || distance > radiusKm) continue;
 
       const bearing =
         (Math.atan2(east, north) * 180 / Math.PI + 360) % 360;
 
-      points.push(
-        destinationPoint(
-          centerLat,
-          centerLon,
-          bearing,
-          distance
-        )
+      const point = destinationPoint(
+        centerLat,
+        centerLon,
+        bearing,
+        distance
       );
+
+      const key =
+        `${point.lat.toFixed(4)}:${point.lon.toFixed(4)}`;
+
+      if (!seen.has(key)) {
+        seen.add(key);
+        points.push(point);
+      }
     }
   }
 
@@ -259,12 +262,10 @@ function normalizeAircraft(data, provider) {
     const lat = numericOrNull(a.lat ?? a.latitude);
     const lon = numericOrNull(a.lon ?? a.longitude);
 
-    const hex = String(
-      a.hex || a.icao24 || ''
-    ).trim().toLowerCase();
-
     return {
-      hex,
+      hex: String(
+        a.hex || a.icao24 || ''
+      ).trim().toLowerCase(),
 
       flight: cleanText(a.flight || a.callsign),
 
@@ -314,7 +315,7 @@ async function fetchJSON(url) {
       cache: 'no-store',
       headers: {
         Accept: 'application/json',
-        'User-Agent': 'SatelliteExplorerPro-/7.0'
+        'User-Agent': `SatelliteExplorerPro/${VERSION}`
       },
       signal: controller.signal
     });
@@ -323,7 +324,7 @@ async function fetchJSON(url) {
 
     if (!response.ok) {
       throw new Error(
-        `HTTP ${response.status}: ${body.slice(0, 350)}`
+        `HTTP ${response.status}: ${body.slice(0, 250)}`
       );
     }
 
@@ -345,20 +346,16 @@ async function fetchJSON(url) {
   }
 }
 
-async function waitProviderLimit(providerName) {
-  const elapsed =
-    Date.now() - lastProviderRequest[providerName];
-
+async function waitProviderLimit(name) {
   const wait = Math.max(
     0,
-    PROVIDER_MIN_INTERVAL - elapsed
+    PROVIDER_MIN_INTERVAL -
+    (Date.now() - lastProviderRequest[name])
   );
 
-  if (wait > 0) {
-    await sleep(wait);
-  }
+  if (wait) await sleep(wait);
 
-  lastProviderRequest[providerName] = Date.now();
+  lastProviderRequest[name] = Date.now();
 }
 
 async function getProviderAircraft(provider, lat, lon) {
@@ -367,7 +364,7 @@ async function getProviderAircraft(provider, lat, lon) {
   const url =
     `${provider.base}/lat/${lat.toFixed(5)}` +
     `/lon/${lon.toFixed(5)}` +
-    `/dist/${MAX_DISTANCE_NM}`;
+    `/dist/${PROVIDER_DISTANCE_NM}`;
 
   providerStatus[provider.name].requests++;
 
@@ -417,18 +414,18 @@ async function getProviderAircraft(provider, lat, lon) {
 
 /* ================= MERGE ================= */
 
-function getAircraftScore(plane) {
+function aircraftScore(p) {
   let score = 0;
 
-  if (plane.flight) score += 3;
-  if (plane.alt_baro !== null) score++;
-  if (plane.gs !== null) score++;
-  if (plane.track !== null) score++;
-  if (plane.r) score += 2;
-  if (plane.t) score++;
-  if (plane.desc) score++;
-  if (plane.category) score++;
-  if (plane.seen_pos !== null) score++;
+  if (p.flight) score += 3;
+  if (p.alt_baro !== null) score++;
+  if (p.gs !== null) score++;
+  if (p.track !== null) score++;
+  if (p.r) score += 2;
+  if (p.t) score++;
+  if (p.desc) score++;
+  if (p.category) score++;
+  if (p.seen_pos !== null) score++;
 
   return score;
 }
@@ -438,27 +435,26 @@ function mergeAircraft(results) {
 
   for (const result of results) {
     for (const plane of result.aircraft || []) {
-      const previous = map.get(plane.hex);
+      const old = map.get(plane.hex);
 
-      if (!previous) {
+      if (!old) {
         map.set(plane.hex, plane);
         continue;
       }
 
       const preferred =
-        getAircraftScore(plane) >
-        getAircraftScore(previous)
+        aircraftScore(plane) > aircraftScore(old)
           ? plane
-          : previous;
+          : old;
 
       const secondary =
-        preferred === plane ? previous : plane;
+        preferred === plane ? old : plane;
 
       map.set(plane.hex, {
         ...secondary,
         ...Object.fromEntries(
           Object.entries(preferred).filter(
-            ([key, value]) =>
+            ([, value]) =>
               value !== null &&
               value !== undefined &&
               value !== ''
@@ -471,18 +467,13 @@ function mergeAircraft(results) {
   return Array.from(map.values());
 }
 
-/* ================= SCAN STATE ================= */
+/* ================= SCAN ================= */
 
 function initializeScan(lat, lon, radiusKm) {
-  const key = [
-    lat.toFixed(3),
-    lon.toFixed(3),
-    radiusKm
-  ].join(':');
+  const key =
+    `${lat.toFixed(3)}:${lon.toFixed(3)}:${radiusKm}`;
 
-  if (key === currentScanKey) {
-    return;
-  }
+  if (key === currentScanKey) return;
 
   currentScanKey = key;
 
@@ -493,9 +484,7 @@ function initializeScan(lat, lon, radiusKm) {
   );
 
   currentScannedTiles = new Set();
-
   scanCursor = 0;
-  tileCounter = 0;
 
   aircraftCache.clear();
 
@@ -504,12 +493,12 @@ function initializeScan(lat, lon, radiusKm) {
   );
 }
 
-function getTileKey(index) {
+function tileKey(index) {
   return `${currentScanKey}:${index}`;
 }
 
-function isTileCached(index) {
-  const item = tileCache.get(getTileKey(index));
+function tileIsCached(index) {
+  const item = tileCache.get(tileKey(index));
 
   return Boolean(
     item &&
@@ -517,58 +506,13 @@ function isTileCached(index) {
   );
 }
 
-/* ================= TILE SCAN ================= */
+function rememberAircraft(planes) {
+  for (const plane of planes) {
+    const old = aircraftCache.get(plane.hex);
 
-async function scanTile(tile, index) {
-  const key = getTileKey(index);
-
-  const cached = tileCache.get(key);
-
-  if (
-    cached &&
-    Date.now() - cached.time < TILE_CACHE_TTL
-  ) {
-    currentScannedTiles.add(index);
-    return cached.aircraft;
-  }
-
-  const results = [];
-
-  // Primary provider: ADSB.fi
-  const primary = await getProviderAircraft(
-    providers[0],
-    tile.lat,
-    tile.lon
-  );
-
-  results.push(primary);
-
-  // Secondary provider: limited periodic requests
-  tileCounter++;
-
-  if (tileCounter % LOL_EVERY_N_TILES === 0) {
-    const secondary = await getProviderAircraft(
-      providers[1],
-      tile.lat,
-      tile.lon
-    );
-
-    results.push(secondary);
-  }
-
-  const aircraft = mergeAircraft(results);
-
-  tileCache.set(key, {
-    time: Date.now(),
-    aircraft
-  });
-
-  for (const plane of aircraft) {
-    const previous = aircraftCache.get(plane.hex);
-
-    const merged = previous
+    const merged = old
       ? mergeAircraft([
-          { aircraft: [previous.plane] },
+          { aircraft: [old.plane] },
           { aircraft: [plane] }
         ])[0]
       : plane;
@@ -578,19 +522,77 @@ async function scanTile(tile, index) {
       time: Date.now()
     });
   }
+}
 
-  currentScannedTiles.add(index);
+async function scanTile(tile, index) {
+  const key = tileKey(index);
+  const cached = tileCache.get(key);
 
-  return aircraft;
+  if (
+    cached &&
+    Date.now() - cached.time < TILE_CACHE_TTL
+  ) {
+    currentScannedTiles.add(index);
+    rememberAircraft(cached.aircraft);
+
+    return {
+      ok: true,
+      aircraft: cached.aircraft,
+      cached: true
+    };
+  }
+
+  const results = [];
+
+  // Primary provider
+  const primary = await getProviderAircraft(
+    providers[0],
+    tile.lat,
+    tile.lon
+  );
+
+  results.push(primary);
+
+  // Fallback provider if primary fails
+  if (!primary.ok) {
+    const secondary = await getProviderAircraft(
+      providers[1],
+      tile.lat,
+      tile.lon
+    );
+
+    results.push(secondary);
+  }
+
+  const planes = mergeAircraft(results);
+
+  if (results.some(r => r.ok)) {
+    tileCache.set(key, {
+      time: Date.now(),
+      aircraft: planes
+    });
+
+    while (tileCache.size > MAX_TILE_CACHE) {
+      tileCache.delete(tileCache.keys().next().value);
+    }
+
+    rememberAircraft(planes);
+    currentScannedTiles.add(index);
+  }
+
+  return {
+    ok: results.some(r => r.ok),
+    aircraft: planes,
+    cached: false
+  };
 }
 
 /* ================= BATCH SCAN ================= */
 
 async function performBatch() {
-  if (!currentGrid.length) return;
-
   let completed = 0;
   let checked = 0;
+  let successful = 0;
 
   while (
     checked < currentGrid.length &&
@@ -603,32 +605,38 @@ async function performBatch() {
 
     checked++;
 
-    if (isTileCached(index)) {
+    if (tileIsCached(index)) {
       currentScannedTiles.add(index);
+
+      const cached = tileCache.get(tileKey(index));
+      rememberAircraft(cached.aircraft);
+
+      successful++;
       continue;
     }
 
-    const tile = currentGrid[index];
+    const result = await scanTile(
+      currentGrid[index],
+      index
+    );
 
-    await scanTile(tile, index);
+    if (result.ok) successful++;
 
     completed++;
   }
+
+  return { successful };
 }
 
-async function scanBatch() {
-  if (scanLock) {
-    await scanLock;
-    return;
-  }
+async function runScan(lat, lon, radiusKm) {
+  const task = scanLock.then(async () => {
+    initializeScan(lat, lon, radiusKm);
+    return performBatch();
+  });
 
-  scanLock = performBatch();
+  scanLock = task.catch(() => undefined);
 
-  try {
-    await scanLock;
-  } finally {
-    scanLock = null;
-  }
+  return task;
 }
 
 /* ================= CACHE CLEANUP ================= */
@@ -640,8 +648,14 @@ function cleanupCache() {
     if (now - item.time > TILE_CACHE_TTL) {
       tileCache.delete(key);
 
-      if (currentScanKey && key.startsWith(currentScanKey + ':')) {
-        const index = Number(key.split(':').pop());
+      if (
+        currentScanKey &&
+        key.startsWith(currentScanKey + ':')
+      ) {
+        const index = Number(
+          key.slice(key.lastIndexOf(':') + 1)
+        );
+
         if (Number.isInteger(index)) {
           currentScannedTiles.delete(index);
         }
@@ -656,8 +670,9 @@ function cleanupCache() {
   }
 
   while (aircraftCache.size > MAX_AIRCRAFT_CACHE) {
-    const oldest = aircraftCache.keys().next().value;
-    aircraftCache.delete(oldest);
+    aircraftCache.delete(
+      aircraftCache.keys().next().value
+    );
   }
 }
 
@@ -670,11 +685,14 @@ app.get('/', (req, res) => {
 
   res.json({
     ok: true,
-    service: 'Satellite Explorer Aircraft VPN',
+    service: 'Satellite Explorer Aircraft Proxy',
     version: VERSION,
+
     targetRadiusKm: TARGET_RADIUS_KM,
-    providerRadiusKm: MAX_DISTANCE_KM,
+    providerRadiusKm: PROVIDER_RADIUS_KM,
+
     providers: providers.map(p => p.name),
+
     endpoints: [
       '/',
       '/health',
@@ -704,24 +722,25 @@ app.get('/health', (req, res) => {
 app.get('/api/status', (req, res) => {
   res.set('Cache-Control', 'no-store');
 
+  const total = currentGrid.length;
+  const scanned = currentScannedTiles.size;
+
   res.json({
     ok: true,
     version: VERSION,
 
     targetRadiusKm: TARGET_RADIUS_KM,
-    providerRadiusKm: MAX_DISTANCE_KM,
+    providerRadiusKm: PROVIDER_RADIUS_KM,
+    providerRadiusNm: PROVIDER_DISTANCE_NM,
 
     gridSpacingKm: GRID_SPACING_KM,
     batchSize: BATCH_SIZE,
 
-    totalTiles: currentGrid.length,
-    scannedTiles: currentScannedTiles.size,
+    totalTiles: total,
+    scannedTiles: scanned,
 
-    progressPercent: currentGrid.length
-      ? Math.round(
-          currentScannedTiles.size /
-          currentGrid.length * 100
-        )
+    progressPercent: total
+      ? Math.round(scanned / total * 100)
       : 0,
 
     providers: providerStatus
@@ -733,8 +752,8 @@ app.get('/api/status', (req, res) => {
 async function aircraftHandler(req, res) {
   res.set('Cache-Control', 'no-store');
 
-  const latValue = req.query.lat;
-  const lonValue = req.query.lon;
+  const latValue = req.query.lat ?? req.query.latitude;
+  const lonValue = req.query.lon ?? req.query.longitude;
 
   if (
     !validNumber(latValue, -90, 90) ||
@@ -751,57 +770,57 @@ async function aircraftHandler(req, res) {
   const lat = Number(latValue);
   const lon = Number(lonValue);
 
-  const radiusValue =
-    req.query.radiusKm ??
-    req.query.dist ??
-    TARGET_RADIUS_KM;
+  let radiusKm = TARGET_RADIUS_KM;
 
-  const radius = numericOrNull(radiusValue);
+  if (req.query.radiusKm !== undefined) {
+    radiusKm = numericOrNull(req.query.radiusKm);
+
+  } else if (req.query.dist !== undefined) {
+    const legacyDist = numericOrNull(req.query.dist);
+
+    radiusKm = legacyDist === null
+      ? null
+      : (
+          legacyDist <= PROVIDER_DISTANCE_NM
+            ? legacyDist * 1.852
+            : legacyDist
+        );
+  }
 
   if (
-    radius === null ||
-    radius < 1 ||
-    radius > TARGET_RADIUS_KM
+    radiusKm === null ||
+    radiusKm < 1 ||
+    radiusKm > TARGET_RADIUS_KM
   ) {
     return res.status(400).json({
       ok: false,
       error: 'Invalid radius',
       minimumKm: 1,
-      maximumKm: TARGET_RADIUS_KM
+      maximumKm: TARGET_RADIUS_KM,
+      note:
+        'radiusKm is measured in kilometers; legacy dist values up to 250 are interpreted as nautical miles.'
     });
   }
 
-  // radiusKm is always kilometers.
-  // Legacy dist values <= 250 are nautical miles.
-  const radiusKm =
-    req.query.radiusKm !== undefined
-      ? radius
-      : radius <= MAX_DISTANCE_NM
-        ? radius * 1.852
-        : radius;
-
   try {
-    initializeScan(lat, lon, radiusKm);
-
-    // Scan only a small number of tiles per request.
-    // This prevents sending hundreds of requests at once.
-    await scanBatch();
+    await runScan(lat, lon, radiusKm);
 
     const now = Date.now();
-
     const aircraft = [];
 
     for (const item of aircraftCache.values()) {
+      const p = item.plane;
+
       if (
         now - item.time <= AIRCRAFT_CACHE_TTL &&
         haversine(
           lat,
           lon,
-          item.plane.lat,
-          item.plane.lon
+          p.lat,
+          p.lon
         ) <= radiusKm
       ) {
-        aircraft.push(item.plane);
+        aircraft.push(p);
       }
     }
 
@@ -819,26 +838,26 @@ async function aircraftHandler(req, res) {
         error: providerStatus[name].error
       }));
 
-    const progress = currentGrid.length
-      ? Math.round(
-          currentScannedTiles.size /
-          currentGrid.length * 100
-        )
+    const total = currentGrid.length;
+    const scanned = currentScannedTiles.size;
+
+    const progress = total
+      ? Math.round(scanned / total * 100)
       : 0;
 
-    const ok = availableSources.length > 0;
+    const hasUsableData =
+      availableSources.length > 0 ||
+      aircraft.length > 0;
 
     console.log(
-      `[AIRCRAFT] ${new Date().toISOString()} ` +
-      `lat=${lat} lon=${lon} ` +
+      `[AIRCRAFT] lat=${lat} lon=${lon} ` +
       `radius=${radiusKm}km ` +
-      `grid=${currentGrid.length} ` +
-      `progress=${progress}% ` +
+      `grid=${total} progress=${progress}% ` +
       `planes=${aircraft.length}`
     );
 
-    return res.status(ok ? 200 : 502).json({
-      ok,
+    return res.status(hasUsableData ? 200 : 502).json({
+      ok: hasUsableData,
 
       service: 'Satellite Explorer Aircraft Proxy',
       version: VERSION,
@@ -853,21 +872,21 @@ async function aircraftHandler(req, res) {
       coverage: {
         targetRadiusKm: radiusKm,
 
-        providerRadiusNm: MAX_DISTANCE_NM,
-        providerRadiusKm: MAX_DISTANCE_KM,
+        providerRadiusNm: PROVIDER_DISTANCE_NM,
+        providerRadiusKm: PROVIDER_RADIUS_KM,
 
         gridSpacingKm: GRID_SPACING_KM,
 
-        totalTiles: currentGrid.length,
-        scannedTiles: currentScannedTiles.size,
+        totalTiles: total,
+        scannedTiles: scanned,
 
         progressPercent: progress,
 
         batchSize: BATCH_SIZE,
 
         complete:
-          currentGrid.length > 0 &&
-          currentScannedTiles.size >= currentGrid.length
+          total > 0 &&
+          scanned >= total
       },
 
       now: Date.now()
@@ -898,6 +917,7 @@ app.use((req, res) => {
     ok: false,
     error: 'Endpoint not found',
     requested: req.originalUrl,
+
     availableEndpoints: [
       '/',
       '/health',
@@ -920,6 +940,7 @@ app.use((err, req, res, next) => {
 
   res.status(err.status || 500).json({
     ok: false,
+
     error: err.status === 403
       ? 'Origin not allowed by CORS'
       : 'Internal server error'
@@ -930,13 +951,20 @@ app.use((err, req, res, next) => {
 
 app.listen(PORT, '0.0.0.0', () => {
   console.log('==========================================');
-  console.log('SATELLITE EXPLORER AIRCRAFT VPN');
+  console.log('SATELLITE EXPLORER AIRCRAFT PROXY');
+
   console.log(`VERSION: ${VERSION}`);
   console.log(`TARGET RADIUS: ${TARGET_RADIUS_KM} KM`);
-  console.log(`PROVIDER RADIUS: ${MAX_DISTANCE_NM} NM`);
+
+  console.log(
+    `PROVIDER RADIUS: ${PROVIDER_DISTANCE_NM} NM (${PROVIDER_RADIUS_KM} KM)`
+  );
+
   console.log(`GRID SPACING: ${GRID_SPACING_KM} KM`);
   console.log(`BATCH SIZE: ${BATCH_SIZE}`);
+
   console.log('PROVIDERS: ADSB.FI + ADSB.LOL');
   console.log(`SERVER PORT: ${PORT}`);
+
   console.log('==========================================');
 });
