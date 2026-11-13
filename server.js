@@ -1,6 +1,6 @@
 
 /* =========================================================
-   SATELLITE EXPLORER PRO
+   SATELLITE EXPLORER PRO-1
    AIRCRAFT PROXY SERVER
    ADSB.FI + ADSB.LOL
    VERSION 5.0.0
