@@ -900,6 +900,93 @@ const AIRCRAFT_API =
 const aircraftLayer = L.layerGroup().addTo(map);
 const aircraftMarkers = new Map();
 
+// =====================================================
+// AIRCRAFT LIVE ROUTE TRACKING
+// =====================================================
+
+const aircraftTrails = new Map();
+
+let selectedAircraftId = null;
+let selectedAircraftPath = null;
+
+const AIRCRAFT_MAX_TRAIL_POINTS = 300;
+const AIRCRAFT_MIN_POINT_DISTANCE_KM = 0.02;
+
+function selectAircraft(icao) {
+  const id = String(icao).toLowerCase();
+  const marker = aircraftMarkers.get(id);
+
+  if (!marker) return;
+
+  selectedAircraftId = id;
+
+  // Remove previous route
+  if (selectedAircraftPath) {
+    map.removeLayer(selectedAircraftPath);
+    selectedAircraftPath = null;
+  }
+
+  const plane = aircraftTrails.get(id);
+
+  if (!plane || plane.length === 0) {
+    aircraftTrails.set(id, []);
+  }
+
+  const points = aircraftTrails.get(id);
+
+  // Create red route
+  selectedAircraftPath = L.polyline(points, {
+    color: '#ff0000',
+    weight: 4,
+    opacity: 0.95,
+    lineCap: 'round',
+    lineJoin: 'round'
+  }).addTo(map);
+
+  selectedAircraftPath.bringToFront();
+
+  marker.openPopup();
+
+  setAircraftStatus(
+    '✈️ مسیر هواپیمای ' + id + ' انتخاب شد.'
+  );
+}
+
+function recordAircraftPosition(plane) {
+  const id = plane.icao;
+
+  if (!aircraftTrails.has(id)) {
+    aircraftTrails.set(id, []);
+  }
+
+  const points = aircraftTrails.get(id);
+  const next = [plane.lat, plane.lon];
+
+  if (points.length > 0) {
+    const last = points[points.length - 1];
+
+    const distance = aircraftDistanceKm(
+      last[0], last[1],
+      next[0], next[1]
+    );
+
+    if (distance < AIRCRAFT_MIN_POINT_DISTANCE_KM) {
+      return;
+    }
+  }
+
+  points.push(next);
+
+  if (points.length > AIRCRAFT_MAX_TRAIL_POINTS) {
+    points.shift();
+  }
+
+  // Update selected aircraft route
+  if (selectedAircraftId === id && selectedAircraftPath) {
+    selectedAircraftPath.setLatLngs(points);
+    selectedAircraftPath.bringToFront();
+  }
+}
 let aircraftFetchBusy = false;
 let aircraftFetchPending = false;
 let aircraftLastSuccess = 0;
