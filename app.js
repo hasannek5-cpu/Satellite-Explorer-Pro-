@@ -1,6 +1,6 @@
 
 /* =====================================================
-   🛰️ SATELLITE EXPLORER PRO-
+   🛰️ SATELLITE EXPLORER PRO
    COMPLETE INTEGRATED VERSION
    GPS + SATELLITES + ORBIT + PASS PREDICTION
    RADIO INFORMATION + LIVE AIRCRAFT
@@ -998,7 +998,7 @@ aircraftControl.onAdd = function () {
     </div>
 
     <div id="aircraftCount">
-      تعداد هواپیماهای قابل مشاهده: ۰
+تعداد هواپیماهای قابل مشاهده:۱۰
     </div>
 
     <div id="aircraftCenterInfo"
