@@ -1341,3 +1341,244 @@ function clearEarthAnalysis() {
         element.textContent = 'تحلیل زمین پاک شد.';
     }
 }
+// =====================================================
+// 33. CENTRAL SYSTEM CONTROLLER
+// SATELLITE EXPLORER PRO
+// =====================================================
+
+const SYSTEM_CONFIG = {
+    satelliteRefresh: 30000,
+    positionRefresh: 3000,
+    statusRefresh: 10000,
+    autoStart: true
+};
+
+const SYSTEM_STATE = {
+    initialized: false,
+    running: false,
+    satellites: [],
+    aircraft: [],
+    lastUpdate: null,
+    errors: [],
+    timers: {}
+};
+
+// -----------------------------------------------------
+// SYSTEM STATUS
+// -----------------------------------------------------
+
+function updateSystemStatus(status, message = "") {
+    SYSTEM_STATE.lastUpdate = new Date();
+
+    const statusElement = document.getElementById("system-status");
+
+    if (statusElement) {
+        statusElement.textContent = message || status;
+        statusElement.dataset.status = status;
+    }
+
+    console.log("[SYSTEM]", status, message);
+}
+
+// -----------------------------------------------------
+// ERROR HANDLER
+// -----------------------------------------------------
+
+function handleSystemError(error, source = "SYSTEM") {
+    const errorData = {
+        source,
+        message: error?.message || String(error),
+        time: new Date().toISOString()
+    };
+
+    SYSTEM_STATE.errors.push(errorData);
+
+    if (SYSTEM_STATE.errors.length > 50) {
+        SYSTEM_STATE.errors.shift();
+    }
+
+    console.error("[SYSTEM ERROR]", errorData);
+
+    updateSystemStatus("error", errorData.message);
+}
+
+// -----------------------------------------------------
+// SATELLITE REFRESH
+// -----------------------------------------------------
+
+async function systemSatelliteRefresh() {
+    if (!SYSTEM_STATE.running) return;
+
+    try {
+        if (typeof loadSatellites === "function") {
+            await loadSatellites();
+        }
+
+        updateSystemStatus("online", "Satellite system online");
+
+    } catch (error) {
+        handleSystemError(error, "SATELLITE");
+    }
+}
+
+// -----------------------------------------------------
+// POSITION REFRESH
+// -----------------------------------------------------
+
+async function systemPositionRefresh() {
+    if (!SYSTEM_STATE.running) return;
+
+    try {
+        if (typeof updateAircraftPositions === "function") {
+            await updateAircraftPositions();
+        }
+
+        if (typeof updateSatellitePositions === "function") {
+            await updateSatellitePositions();
+        }
+
+    } catch (error) {
+        handleSystemError(error, "POSITION");
+    }
+}
+
+// -----------------------------------------------------
+// AIRCRAFT REFRESH
+// -----------------------------------------------------
+
+async function systemAircraftRefresh() {
+    if (!SYSTEM_STATE.running) return;
+
+    try {
+        if (typeof loadAircraft === "function") {
+            await loadAircraft();
+        }
+
+    } catch (error) {
+        handleSystemError(error, "AIRCRAFT");
+    }
+}
+
+// -----------------------------------------------------
+// GET SYSTEM STATUS
+// -----------------------------------------------------
+
+function getSystemStatus() {
+    return {
+        initialized: SYSTEM_STATE.initialized,
+        running: SYSTEM_STATE.running,
+        satelliteCount: SYSTEM_STATE.satellites.length,
+        aircraftCount: SYSTEM_STATE.aircraft.length,
+        lastUpdate: SYSTEM_STATE.lastUpdate,
+        errors: SYSTEM_STATE.errors.length
+    };
+}
+
+// -----------------------------------------------------
+// INITIALIZE SYSTEM
+// -----------------------------------------------------
+
+async function initializeSystem() {
+    if (SYSTEM_STATE.initialized) return;
+
+    try {
+        updateSystemStatus("loading", "Initializing system...");
+
+        SYSTEM_STATE.initialized = true;
+
+        if (typeof initializeMap === "function") {
+            await initializeMap();
+        }
+
+        updateSystemStatus("ready", "System initialized");
+
+        if (SYSTEM_CONFIG.autoStart) {
+            startSystem();
+        }
+
+    } catch (error) {
+        handleSystemError(error, "INITIALIZATION");
+    }
+}
+
+// -----------------------------------------------------
+// START SYSTEM
+// -----------------------------------------------------
+
+function startSystem() {
+    if (SYSTEM_STATE.running) return;
+
+    SYSTEM_STATE.running = true;
+
+    SYSTEM_STATE.timers.satellites = setInterval(
+        systemSatelliteRefresh,
+        SYSTEM_CONFIG.satelliteRefresh
+    );
+
+    SYSTEM_STATE.timers.positions = setInterval(
+        systemPositionRefresh,
+        SYSTEM_CONFIG.positionRefresh
+    );
+
+    SYSTEM_STATE.timers.aircraft = setInterval(
+        systemAircraftRefresh,
+        SYSTEM_CONFIG.statusRefresh
+    );
+
+    systemSatelliteRefresh();
+    systemPositionRefresh();
+    systemAircraftRefresh();
+
+    updateSystemStatus("online", "All systems running");
+}
+
+// -----------------------------------------------------
+// STOP SYSTEM
+// -----------------------------------------------------
+
+function stopSystem() {
+    SYSTEM_STATE.running = false;
+
+    Object.values(SYSTEM_STATE.timers).forEach(timer => {
+        clearInterval(timer);
+    });
+
+    SYSTEM_STATE.timers = {};
+
+    updateSystemStatus("stopped", "System stopped");
+}
+
+// -----------------------------------------------------
+// RESTART SYSTEM
+// -----------------------------------------------------
+
+function restartSystem() {
+    stopSystem();
+    startSystem();
+}
+
+// -----------------------------------------------------
+// PUBLIC SYSTEM API
+// -----------------------------------------------------
+
+window.SatelliteExplorerSystem = {
+    initialize: initializeSystem,
+    start: startSystem,
+    stop: stopSystem,
+    restart: restartSystem,
+    status: getSystemStatus
+};
+
+// -----------------------------------------------------
+// AUTO INITIALIZATION
+// -----------------------------------------------------
+
+if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", initializeSystem);
+} else {
+    initializeSystem();
+}
+
+// =====================================================
+// END OF STEP 10
+// =====================================================
