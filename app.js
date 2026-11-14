@@ -740,3 +740,78 @@ function getDistanceToSatellite(name) {
         position.longitude
     );
 }
+
+/* =========================================================
+   STAGE 5 OF 11
+   SATELLITE EXPLORER PRO
+   TLE PARSER MODULE
+   ========================================================= */
+
+function parseTLE(content, group = "active") {
+    if (!content || typeof content !== "string") {
+        throw new Error("Invalid TLE content");
+    }
+
+    const lines = content
+        .split(/\r?\n/)
+        .map(line => line.trim())
+        .filter(Boolean);
+
+    const satellites = [];
+
+    for (let i = 0; i < lines.length; i++) {
+        let name = "UNKNOWN";
+
+        if (!lines[i].startsWith("1 ")) {
+            name = lines[i];
+            i++;
+
+            if (i + 1 >= lines.length) break;
+        }
+
+        const line1 = lines[i];
+        const line2 = lines[i + 1];
+
+        if (
+            !line1 ||
+            !line2 ||
+            !line1.startsWith("1 ") ||
+            !line2.startsWith("2 ")
+        ) {
+            continue;
+        }
+
+        const satellite = {
+            name,
+            group,
+            line1,
+            line2,
+            catalogNumber: line1.substring(2, 7).trim(),
+            inclination: Number(line2.substring(8, 16)),
+            raan: Number(line2.substring(17, 25)),
+            eccentricity: Number(
+                "0." + line2.substring(26, 33).trim()
+            ),
+            argumentOfPerigee: Number(
+                line2.substring(34, 42)
+            ),
+            meanAnomaly: Number(
+                line2.substring(43, 51)
+            ),
+            meanMotion: Number(
+                line2.substring(52, 63)
+            )
+        };
+
+        if (
+            Number.isFinite(satellite.inclination) &&
+            Number.isFinite(satellite.meanMotion)
+        ) {
+            satellites.push(satellite);
+        }
+
+        i++;
+    }
+
+    return satellites;
+}
