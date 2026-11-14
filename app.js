@@ -939,3 +939,118 @@ const SatellitePosition = (() => {
         normalizeAngle
     };
 })();
+/* =========================================================
+   STAGE 7 / 11
+   THERMAL ANALYSIS
+   LANDSAT THERMAL DATA
+   ========================================================= */
+
+(() => {
+  'use strict';
+
+  window.loadThermalData = async function (bbox) {
+    const panel = document.getElementById('thermalResults');
+
+    if (!bbox || bbox.length !== 4) {
+      throw new Error('محدوده جغرافیایی معتبر نیست.');
+    }
+
+    if (panel) {
+      panel.textContent = 'در حال دریافت داده‌های حرارتی Landsat...';
+    }
+
+    try {
+      const response = await fetch(
+        'https://earth-search.aws.element84.com/v1/search',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            collections: ['landsat-c2-l2'],
+            bbox: bbox,
+            datetime:
+              `${new Date(Date.now() - 365 * 86400000).toISOString()}/` +
+              `${new Date().toISOString()}`,
+            limit: 20,
+            query: {
+              'eo:cloud_cover': {
+                lte: 30
+              }
+            }
+          })
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error(`خطای سرور: ${response.status}`);
+      }
+
+      const data = await response.json();
+
+      if (!data.features || data.features.length === 0) {
+        throw new Error('تصویر حرارتی مناسبی پیدا نشد.');
+      }
+
+      const results = data.features.map(feature => {
+        const assets = feature.assets || {};
+
+        const thermalAsset =
+          assets.lwir11 ||
+          assets.st_b10 ||
+          assets.ST_B10 ||
+          null;
+
+        return {
+          id: feature.id,
+          date: feature.properties?.datetime || 'نامشخص',
+          cloudCover:
+            feature.properties?.['eo:cloud_cover'] ?? 'نامشخص',
+          thermalAvailable: Boolean(thermalAsset),
+          thermalAsset: thermalAsset?.href || null
+        };
+      });
+
+      window.SatelliteThermalData = results;
+
+      if (panel) {
+        panel.innerHTML = '';
+
+        results.forEach(item => {
+          const card = document.createElement('div');
+          card.className = 'thermal-result-card';
+
+          const title = document.createElement('h4');
+          title.textContent = item.id;
+
+          const date = document.createElement('p');
+          date.textContent = `تاریخ: ${item.date}`;
+
+          const cloud = document.createElement('p');
+          cloud.textContent = `پوشش ابر: ${item.cloudCover}%`;
+
+          const status = document.createElement('p');
+          status.textContent = item.thermalAvailable
+            ? 'باند حرارتی موجود است'
+            : 'باند حرارتی موجود نیست';
+
+          card.append(title, date, cloud, status);
+          panel.appendChild(card);
+        });
+      }
+
+      return results;
+
+    } catch (error) {
+      console.error('Thermal Analysis Error:', error);
+
+      if (panel) {
+        panel.textContent = `خطا در تحلیل حرارتی: ${error.message}`;
+      }
+
+      throw error;
+    }
+  };
+
+})();
