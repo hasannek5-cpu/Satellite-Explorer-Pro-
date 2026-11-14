@@ -15,25 +15,88 @@ if (typeof satellite === 'undefined') {
   throw new Error('satellite.js بارگذاری نشده است.');
 }
 
-// =====================================================
-// 1. MAP
-// =====================================================
+/* =====================================================
+   MAP - ESRI SATELLITE / HIGH ZOOM
+   ===================================================== */
 
-const map = window.map = L.map('map').setView([25, 15], 2);
+const map = window.map = L.map('map', {
+  zoomControl: false,
+  scrollWheelZoom: true,
+  doubleClickZoom: true,
+  touchZoom: true,
+  boxZoom: true,
+  keyboard: true,
+  zoomSnap: 0.25,
+  zoomDelta: 0.5,
+  minZoom: 2,
+  maxZoom: 22,
+  preferCanvas: true
+}).setView([25, 15], 2);
 
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-  attribution: '© OpenStreetMap'
+// تصاویر ماهواره‌ای
+const esriImagery = L.tileLayer(
+  'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+  {
+    attribution: 'Tiles © Esri',
+    maxZoom: 22,
+    maxNativeZoom: 19,
+    tileSize: 256,
+    crossOrigin: true,
+    keepBuffer: 4
+  }
+).addTo(map);
+
+// نقشه خیابانی جایگزین
+const osmLayer = L.tileLayer(
+  'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+  {
+    attribution: '© OpenStreetMap',
+    maxZoom: 19,
+    keepBuffer: 3
+  }
+);
+
+// کنترل بزرگ‌نمایی
+L.control.zoom({
+  position: 'bottomright'
 }).addTo(map);
 
+// مقیاس متر و کیلومتر
+L.control.scale({
+  position: 'bottomleft',
+  metric: true,
+  imperial: false,
+  maxWidth: 160
+}).addTo(map);
+
+// انتخاب نقشه
+L.control.layers(
+  {
+    'تصویر ماهواره‌ای Esri': esriImagery,
+    'نقشه خیابانی': osmLayer
+  },
+  {},
+  {
+    position: 'topright',
+    collapsed: true
+  }
+).addTo(map);
+
+// تنظیم مجدد اندازه نقشه
+window.addEventListener('resize', () => {
+  map.invalidateSize();
+});
+
+map.whenReady(() => {
+  setTimeout(() => map.invalidateSize(), 150);
+});
+
+// گروه‌های ماهواره
 const markers = L.layerGroup().addTo(map);
 const pathLayer = L.layerGroup().addTo(map);
 const markerMap = new Map();
 
-let satellitesData = [];
-let userMarker = null;
-let selectedNorad = null;
-let userLocation = null;
-let passSearchBusy = false;
+
 
 // =====================================================
 // 2. SATELLITE GROUPS
