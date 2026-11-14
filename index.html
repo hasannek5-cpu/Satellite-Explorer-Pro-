@@ -45,7 +45,6 @@ body{
   padding-bottom:env(safe-area-inset-bottom);
 }
 
-/* سربرگ کوچک */
 header{
   height:58px;
   padding:0 14px;
@@ -66,7 +65,6 @@ header h2{
   color:#71d6a2;
 }
 
-/* منوی جمع شونده */
 .toolbar{
   position:relative;
   z-index:1100;
@@ -96,9 +94,7 @@ nav{
   padding-top:9px;
 }
 
-nav.open{
-  display:grid;
-}
+nav.open{display:grid}
 
 nav button{
   min-height:43px;
@@ -115,19 +111,11 @@ nav button.active{
   border-color:#32bafa;
 }
 
-/* فضای اصلی */
-main{
-  padding:8px;
-}
+main{padding:8px}
 
-section{
-  padding:0;
-}
+section{padding:0}
 
-/* نقشه بزرگ */
-#mapTab{
-  position:relative;
-}
+#mapTab{position:relative}
 
 #map{
   width:100%;
@@ -139,7 +127,6 @@ section{
   background:#10243a;
 }
 
-/* پنل اطلاعات */
 #infoTab,#gpsTab,#earthTab{
   padding:12px;
   background:#0b1c30;
@@ -153,9 +140,7 @@ h3{
   margin:8px 0 14px;
 }
 
-h4{
-  font-size:13px;
-}
+h4{font-size:13px}
 
 #details,#satelliteList,#location{
   background:#10243a;
@@ -180,6 +165,11 @@ button{
   padding:11px 15px;
   border-radius:9px;
   margin:5px 0;
+}
+
+button:focus-visible{
+  outline:2px solid #39b9f0;
+  outline-offset:3px;
 }
 
 .sensor-panel{
@@ -207,12 +197,11 @@ button{
   line-height:2;
 }
 
-/* دکمه شناور برگشت به نقشه */
 .map-home{
   position:fixed;
   z-index:1200;
   left:17px;
-  bottom:20px;
+  bottom:calc(20px + env(safe-area-inset-bottom));
   width:46px;
   height:46px;
   border-radius:50%;
@@ -250,118 +239,277 @@ button{
 </header>
 
 <div class="toolbar">
-  <button class="menu-toggle" onclick="toggleMenu()">
+
+  <button class="menu-toggle"
+          type="button"
+          onclick="toggleMenu()"
+          aria-expanded="false"
+          aria-controls="mainNav">
+
     <span>☰ ابزارهای سامانه</span>
     <span id="menuArrow">⌄</span>
+
   </button>
 
   <nav id="mainNav">
-    <button class="active" onclick="showTab('map')">🗺 نقشه</button>
-    <button onclick="showTab('info')">🛰 ماهواره‌ها</button>
-    <button onclick="showTab('gps')">📍 GPS</button>
-    <button onclick="showTab('earth')">🌍 تحلیل زمین</button>
+
+    <button class="active" type="button"
+            onclick="showTab('map')">
+      🗺 نقشه
+    </button>
+
+    <button type="button"
+            onclick="showTab('info')">
+      🛰 ماهواره‌ها
+    </button>
+
+    <button type="button"
+            onclick="showTab('gps')">
+      📍 GPS
+    </button>
+
+    <button type="button"
+            onclick="showTab('earth')">
+      🌍 تحلیل زمین
+    </button>
+
   </nav>
+
 </div>
 
 <main>
 
-<section id="mapTab">
-  <div id="map"></div>
-</section>
+  <!-- نقشه -->
+  <section id="mapTab">
+    <div id="map"></div>
+  </section>
 
-<section id="infoTab" hidden>
-  <h3>🛰 اطلاعات ماهواره</h3>
-  <div id="details">یک ماهواره انتخاب کنید.</div>
+  <!-- اطلاعات ماهواره -->
+  <section id="infoTab" hidden>
 
-  <h3>فهرست ماهواره‌ها</h3>
-  <div id="satelliteList"></div>
-</section>
+    <h3>🛰 اطلاعات ماهواره</h3>
 
-<section id="gpsTab" hidden>
-  <h3>📍 موقعیت GPS گوشی</h3>
-  <button onclick="getLocation()">دریافت موقعیت من</button>
-  <div id="location" class="sensor-result"></div>
-</section>
-
-<section id="earthTab" hidden>
-  <h3>🌍 تحلیل زمین</h3>
-
-  <div class="sensor-panel">
-    <h4>📍 مختصات نقطه مورد بررسی</h4>
-    <div id="selectedCoordinates">
-      برای انتخاب نقطه، روی نقشه کلیک کنید.
+    <div id="details">
+      یک ماهواره انتخاب کنید.
     </div>
 
-    <h4>🌡 تحلیل حرارتی سطح زمین</h4>
-    <button onclick="loadThermalData()">دریافت داده حرارتی</button>
-    <div id="thermalResult" class="sensor-result">
-      هنوز داده حرارتی دریافت نشده است.
+    <h3>فهرست ماهواره‌ها</h3>
+
+    <div id="satelliteList"></div>
+
+  </section>
+
+  <!-- GPS -->
+  <section id="gpsTab" hidden>
+
+    <h3>📍 موقعیت GPS گوشی</h3>
+
+    <button type="button" onclick="getLocation()">
+      دریافت موقعیت من
+    </button>
+
+    <div id="location" class="sensor-result"></div>
+
+  </section>
+
+  <!-- تحلیل زمین -->
+  <section id="earthTab" hidden>
+
+    <h3>🌍 تحلیل زمین</h3>
+
+    <div class="sensor-panel">
+
+      <h4>📍 مختصات نقطه مورد بررسی</h4>
+
+      <div id="selectedCoordinates">
+        برای انتخاب نقطه، روی نقشه کلیک کنید.
+      </div>
+
+      <h4>🌡 تحلیل حرارتی سطح زمین</h4>
+
+      <button type="button" onclick="loadThermalData()">
+        دریافت داده حرارتی
+      </button>
+
+      <div id="thermalResult" class="sensor-result">
+        هنوز داده حرارتی دریافت نشده است.
+      </div>
+
+      <h4>🪨 بررسی خاک و مواد معدنی</h4>
+
+      <button type="button" onclick="loadMineralData()">
+        تحلیل طیفی منطقه
+      </button>
+
+      <div id="mineralResult" class="sensor-result">
+        هنوز داده طیفی دریافت نشده است.
+      </div>
+
     </div>
 
-    <h4>🪨 بررسی خاک و مواد معدنی</h4>
-    <button onclick="loadMineralData()">تحلیل طیفی منطقه</button>
-    <div id="mineralResult" class="sensor-result">
-      هنوز داده طیفی دریافت نشده است.
-    </div>
-  </div>
+    <p>
+      توجه: نتایج حرارتی و طیفی به داده‌های ماهواره‌ای معتبر
+      وابسته‌اند. تشخیص قطعی معدن به بررسی میدانی و آزمایش نمونه نیاز دارد.
+    </p>
 
-  <p>
-    توجه: نتایج حرارتی و طیفی به داده‌های ماهواره‌ای معتبر وابسته‌اند.
-    تشخیص قطعی معدن به بررسی میدانی و آزمایش نمونه نیاز دارد.
-  </p>
-</section>
+  </section>
 
 </main>
 
-<button class="map-home" onclick="showTab('map')" title="بازگشت به نقشه">⌖</button>
+<!-- بازگشت به نقشه -->
+<button class="map-home"
+        type="button"
+        onclick="showTab('map')"
+        title="بازگشت به نقشه"
+        aria-label="بازگشت به نقشه">
 
+  ⌖
+
+</button>
+
+<!-- کتابخانه نقشه -->
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+<!-- محاسبات مداری ماهواره -->
 <script src="https://cdn.jsdelivr.net/npm/satellite.js@6.0.1/dist/satellite.min.js"></script>
 
+<!-- موتور اصلی ماهواره و نقشه -->
 <script src="./app.js"></script>
+
+<!-- تحلیل زمین -->
 <script src="./earth-analysis.js"></script>
 
 <script>
+
+/* =========================================
+   تنظیمات منوی اصلی
+========================================= */
+
 function toggleMenu(){
+
   const nav=document.getElementById('mainNav');
   const arrow=document.getElementById('menuArrow');
+  const toggle=document.querySelector('.menu-toggle');
 
-  nav.classList.toggle('open');
-  arrow.textContent=nav.classList.contains('open')?'⌃':'⌄';
+  const isOpen=nav.classList.toggle('open');
+
+  arrow.textContent=isOpen?'⌃':'⌄';
+
+  toggle.setAttribute('aria-expanded',String(isOpen));
+
 }
+
+/* =========================================
+   مدیریت تب‌های سامانه
+========================================= */
 
 function showTab(tab){
 
   const tabs=['map','info','gps','earth'];
 
+  if(!tabs.includes(tab)) return;
+
   tabs.forEach(name=>{
+
     const section=document.getElementById(name+'Tab');
-    if(section) section.hidden=name!==tab;
+
+    if(section){
+      section.hidden=name!==tab;
+    }
+
   });
 
   document.querySelectorAll('#mainNav button').forEach((button,index)=>{
-    button.classList.toggle('active',tabs[index]===tab);
+
+    button.classList.toggle(
+      'active',
+      tabs[index]===tab
+    );
+
   });
 
   document.getElementById('mainNav').classList.remove('open');
+
   document.getElementById('menuArrow').textContent='⌄';
 
-  if(tab==='map' && window.map){
+  document.querySelector('.menu-toggle')
+    .setAttribute('aria-expanded','false');
+
+  /* اصلاح ابعاد نقشه بعد از نمایش */
+
+  if(tab==='map'){
+
     setTimeout(()=>{
-      window.map.invalidateSize();
-    },200);
+
+      if(window.map && typeof window.map.invalidateSize==='function'){
+        window.map.invalidateSize(true);
+      }
+
+    },250);
+
   }
+
 }
 
+/* =========================================
+   ثبت Service Worker
+   سازگار با GitHub Pages
+========================================= */
+
 if('serviceWorker' in navigator){
-  window.addEventListener('load',()=>{
-    navigator.serviceWorker.register(
-      '/Satellite-Explorer-Pro1/service-worker.js'
-    ).catch(error=>{
+
+  window.addEventListener('load',async()=>{
+
+    try{
+
+      const baseURL=new URL('./',window.location.href);
+
+      const workerURL=new URL(
+        'service-worker.js',
+        baseURL
+      );
+
+      await navigator.serviceWorker.register(
+        workerURL.href,
+        {
+          scope:baseURL.pathname
+        }
+      );
+
+      console.log('Service Worker registered successfully');
+
+    }catch(error){
+
       console.error('Service Worker Error:',error);
-    });
+
+    }
+
   });
+
 }
+
+/* =========================================
+   کنترل خطاهای اولیه
+========================================= */
+
+window.addEventListener('load',()=>{
+
+  if(typeof L==='undefined'){
+    console.error('Leaflet library not loaded');
+  }
+
+  if(typeof satellite==='undefined'){
+    console.error('Satellite.js library not loaded');
+  }
+
+  if(!window.map){
+    console.warn(
+      'Map is not initialized yet. Check app.js'
+    );
+  }
+
+});
+
 </script>
 
 </body>
