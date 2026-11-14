@@ -504,3 +504,239 @@ function focusSatellite(name) {
 
     return true;
            }
+// =====================================================
+// 21. GPS CONFIGURATION
+// =====================================================
+
+const GPS_CONFIG = {
+    enableHighAccuracy: true,
+    timeout: 15000,
+    maximumAge: 3000
+};
+
+let userLocation = null;
+let userMarker = null;
+let userAccuracyCircle = null;
+let gpsWatchId = null;
+
+// =====================================================
+// 22. GPS ERROR HANDLER
+// =====================================================
+
+function handleGPSError(error) {
+
+    const messages = {
+        1: 'دسترسی به موقعیت GPS رد شده است.',
+        2: 'موقعیت جغرافیایی در دسترس نیست.',
+        3: 'زمان دریافت GPS به پایان رسید.'
+    };
+
+    console.error(
+        'GPS Error:',
+        messages[error.code] || error.message
+    );
+}
+
+// =====================================================
+// 23. UPDATE USER LOCATION
+// =====================================================
+
+function updateUserLocation(position) {
+
+    const latitude = position.coords.latitude;
+    const longitude = position.coords.longitude;
+    const accuracy = position.coords.accuracy;
+
+    if (
+        !Number.isFinite(latitude) ||
+        !Number.isFinite(longitude)
+    ) {
+        return;
+    }
+
+    userLocation = {
+        latitude,
+        longitude,
+        accuracy,
+        altitude: position.coords.altitude,
+        speed: position.coords.speed,
+        heading: position.coords.heading,
+        timestamp: position.timestamp
+    };
+
+    const coordinates = [
+        latitude,
+        longitude
+    ];
+
+    if (!userMarker) {
+
+        userMarker = L.marker(coordinates)
+            .addTo(map)
+            .bindPopup('موقعیت فعلی شما');
+
+    } else {
+
+        userMarker.setLatLng(coordinates);
+
+    }
+
+    if (!userAccuracyCircle) {
+
+        userAccuracyCircle = L.circle(
+            coordinates,
+            {
+                radius: accuracy,
+                color: '#2196f3',
+                fillOpacity: 0.12
+            }
+        ).addTo(map);
+
+    } else {
+
+        userAccuracyCircle.setLatLng(coordinates);
+        userAccuracyCircle.setRadius(accuracy);
+
+    }
+
+    const gpsOutput =
+        document.getElementById('gps-status');
+
+    if (gpsOutput) {
+
+        gpsOutput.textContent =
+            `GPS فعال | ${latitude.toFixed(5)}, ${longitude.toFixed(5)}`;
+
+    }
+
+    document.dispatchEvent(
+        new CustomEvent('satellite:gps-update', {
+            detail: userLocation
+        })
+    );
+}
+
+// =====================================================
+// 24. START GPS
+// =====================================================
+
+function startGPS() {
+
+    if (!navigator.geolocation) {
+
+        console.error(
+            'مرورگر از GPS پشتیبانی نمی‌کند.'
+        );
+
+        return false;
+    }
+
+    if (gpsWatchId !== null) {
+        navigator.geolocation.clearWatch(gpsWatchId);
+    }
+
+    gpsWatchId = navigator.geolocation.watchPosition(
+        updateUserLocation,
+        handleGPSError,
+        GPS_CONFIG
+    );
+
+    return true;
+}
+
+// =====================================================
+// 25. STOP GPS
+// =====================================================
+
+function stopGPS() {
+
+    if (gpsWatchId !== null) {
+
+        navigator.geolocation.clearWatch(
+            gpsWatchId
+        );
+
+        gpsWatchId = null;
+    }
+}
+
+// =====================================================
+// 26. CENTER MAP ON USER
+// =====================================================
+
+function centerMapOnUser() {
+
+    if (!userLocation) {
+        console.warn('موقعیت GPS هنوز دریافت نشده است.');
+        return false;
+    }
+
+    map.setView(
+        [
+            userLocation.latitude,
+            userLocation.longitude
+        ],
+        10
+    );
+
+    if (userMarker) {
+        userMarker.openPopup();
+    }
+
+    return true;
+}
+
+// =====================================================
+// 27. DISTANCE CALCULATION
+// =====================================================
+
+function calculateDistance(
+    lat1,
+    lon1,
+    lat2,
+    lon2
+) {
+
+    const R = 6371;
+
+    const toRadians = value =>
+        value * Math.PI / 180;
+
+    const dLat = toRadians(lat2 - lat1);
+    const dLon = toRadians(lon2 - lon1);
+
+    const a =
+        Math.sin(dLat / 2) ** 2 +
+        Math.cos(toRadians(lat1)) *
+        Math.cos(toRadians(lat2)) *
+        Math.sin(dLon / 2) ** 2;
+
+    const c =
+        2 * Math.atan2(
+            Math.sqrt(a),
+            Math.sqrt(1 - a)
+        );
+
+    return R * c;
+}
+
+// =====================================================
+// 28. DISTANCE TO SATELLITE GROUND TRACK
+// =====================================================
+
+function getDistanceToSatellite(name) {
+
+    if (!userLocation) return null;
+
+    const position =
+        getSatellitePosition(name);
+
+    if (!position) return null;
+
+    return calculateDistance(
+        userLocation.latitude,
+        userLocation.longitude,
+        position.latitude,
+        position.longitude
+    );
+}
