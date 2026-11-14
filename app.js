@@ -815,3 +815,127 @@ function parseTLE(content, group = "active") {
 
     return satellites;
 }
+
+/* =========================================================
+   STAGE 6 OF 11
+   SATELLITE POSITION CALCULATION
+   ========================================================= */
+
+const SatellitePosition = (() => {
+    "use strict";
+
+    const EARTH_RADIUS = 6371;
+
+    function toRadians(degrees) {
+        return degrees * Math.PI / 180;
+    }
+
+    function toDegrees(radians) {
+        return radians * 180 / Math.PI;
+    }
+
+    function normalizeAngle(angle) {
+        return ((angle % 360) + 360) % 360;
+    }
+
+    function calculateOrbitalRadius(meanMotion) {
+        const MU = 398600.4418;
+        const n = meanMotion * 2 * Math.PI / 86400;
+
+        if (!Number.isFinite(n) || n <= 0) {
+            throw new Error("Invalid mean motion");
+        }
+
+        return Math.cbrt(MU / (n * n));
+    }
+
+    function calculatePosition(tle, timestamp = Date.now()) {
+        if (!tle || !tle.line1 || !tle.line2) {
+            throw new Error("Invalid satellite TLE");
+        }
+
+        const inclination = toRadians(tle.inclination);
+        const raan = toRadians(tle.raan);
+        const eccentricity = tle.eccentricity;
+        const argument = toRadians(tle.argumentOfPerigee);
+        const meanAnomaly = toRadians(tle.meanAnomaly);
+
+        const orbitalRadius =
+            calculateOrbitalRadius(tle.meanMotion);
+
+        const epochYear = Number(tle.line1.substring(18, 20));
+        const epochDay = Number(tle.line1.substring(20, 32));
+
+        const fullYear = epochYear < 57
+            ? 2000 + epochYear
+            : 1900 + epochYear;
+
+        const epoch = Date.UTC(fullYear, 0, 1) +
+            (epochDay - 1) * 86400000;
+
+        const elapsedDays = (timestamp - epoch) / 86400000;
+
+        const meanMotionRadians =
+            tle.meanMotion * 2 * Math.PI;
+
+        const M = normalizeAngle(
+            toDegrees(meanAnomaly) +
+            meanMotionRadians * elapsedDays
+        );
+
+        const mean = toRadians(M);
+        let E = mean;
+
+        for (let i = 0; i < 12; i++) {
+            E -= (
+                E - eccentricity * Math.sin(E) - mean
+            ) / (
+                1 - eccentricity * Math.cos(E)
+            );
+        }
+
+        const trueAnomaly = 2 * Math.atan2(
+            Math.sqrt(1 + eccentricity) * Math.sin(E / 2),
+            Math.sqrt(1 - eccentricity) * Math.cos(E / 2)
+        );
+
+        const radius = orbitalRadius *
+            (1 - eccentricity * Math.cos(E));
+
+        const u = argument + trueAnomaly;
+
+        const x = radius * (
+            Math.cos(raan) * Math.cos(u) -
+            Math.sin(raan) * Math.sin(u) * Math.cos(inclination)
+        );
+
+        const y = radius * (
+            Math.sin(raan) * Math.cos(u) +
+            Math.cos(raan) * Math.sin(u) * Math.cos(inclination)
+        );
+
+        const z = radius *
+            Math.sin(u) * Math.sin(inclination);
+
+        return {
+            x,
+            y,
+            z,
+            radius,
+            altitude: radius - EARTH_RADIUS,
+            latitude: toDegrees(Math.atan2(
+                z,
+                Math.sqrt(x * x + y * y)
+            )),
+            longitude: normalizeAngle(
+                toDegrees(Math.atan2(y, x))
+            )
+        };
+    }
+
+    return {
+        calculatePosition,
+        calculateOrbitalRadius,
+        normalizeAngle
+    };
+})();
