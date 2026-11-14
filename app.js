@@ -304,3 +304,203 @@ function getSatelliteInfo(name) {
         tle2: item.line2
     };
 }
+// =====================================================
+// 15. SATELLITE PROPAGATION
+// =====================================================
+
+function calculateSatellitePosition(item, date = new Date()) {
+
+    try {
+
+        const satrec = satellite.twoline2satrec(
+            item.line1,
+            item.line2
+        );
+
+        const positionAndVelocity =
+            satellite.propagate(satrec, date);
+
+        if (
+            !positionAndVelocity ||
+            !positionAndVelocity.position ||
+            !positionAndVelocity.velocity
+        ) {
+            return null;
+        }
+
+        const positionEci = positionAndVelocity.position;
+
+        const velocity = positionAndVelocity.velocity;
+
+        if (
+            !Number.isFinite(positionEci.x) ||
+            !Number.isFinite(positionEci.y) ||
+            !Number.isFinite(positionEci.z)
+        ) {
+            return null;
+        }
+
+        const gmst = satellite.gstime(date);
+
+        const positionGd =
+            satellite.eciToGeodetic(
+                positionEci,
+                gmst
+            );
+
+        const latitude =
+            satellite.degreesLat(positionGd.latitude);
+
+        const longitude =
+            satellite.degreesLong(positionGd.longitude);
+
+        const altitude = positionGd.height;
+
+        const speed = Math.sqrt(
+            velocity.x ** 2 +
+            velocity.y ** 2 +
+            velocity.z ** 2
+        );
+
+        return {
+            name: item.name,
+            latitude,
+            longitude,
+            altitude,
+            speed,
+            timestamp: date.getTime()
+        };
+
+    } catch (error) {
+
+        console.error(
+            'Position calculation error:',
+            item.name,
+            error
+        );
+
+        return null;
+    }
+}
+
+// =====================================================
+// 16. UPDATE ALL SATELLITE POSITIONS
+// =====================================================
+
+function updateAllSatellitePositions() {
+
+    const now = new Date();
+
+    satelliteList.forEach(item => {
+
+        const position =
+            calculateSatellitePosition(item, now);
+
+        if (!position) return;
+
+        updateSatelliteMarker(
+            position.name,
+            position.latitude,
+            position.longitude
+        );
+
+        satellitePositions.set(
+            position.name,
+            position
+        );
+
+    });
+}
+
+// =====================================================
+// 17. GET SATELLITE POSITION
+// =====================================================
+
+function getSatellitePosition(name) {
+
+    const item = satelliteList.find(
+        sat => sat.name === name
+    );
+
+    if (!item) return null;
+
+    return calculateSatellitePosition(item);
+}
+
+// =====================================================
+// 18. FORMAT SATELLITE DATA
+// =====================================================
+
+function formatSatelliteData(position) {
+
+    if (!position) {
+        return 'اطلاعات موقعیت موجود نیست.';
+    }
+
+    return {
+        name: position.name,
+
+        latitude:
+            position.latitude.toFixed(5),
+
+        longitude:
+            position.longitude.toFixed(5),
+
+        altitude:
+            position.altitude.toFixed(2) + ' km',
+
+        speed:
+            position.speed.toFixed(3) + ' km/s',
+
+        updated:
+            new Date(
+                position.timestamp
+            ).toLocaleTimeString()
+    };
+}
+
+// =====================================================
+// 19. SATELLITE SEARCH
+// =====================================================
+
+function searchSatellite(query) {
+
+    const keyword = String(query || '')
+        .trim()
+        .toLowerCase();
+
+    if (!keyword) return [];
+
+    return satelliteList.filter(item =>
+        item.name.toLowerCase().includes(keyword)
+    );
+}
+
+// =====================================================
+// 20. FOCUS ON SATELLITE
+// =====================================================
+
+function focusSatellite(name) {
+
+    const position =
+        getSatellitePosition(name);
+
+    if (!position) return false;
+
+    map.setView(
+        [
+            position.latitude,
+            position.longitude
+        ],
+        6
+    );
+
+    const marker =
+        satelliteMarkers.get(name);
+
+    if (marker) {
+        marker.openPopup();
+    }
+
+    return true;
+           }
