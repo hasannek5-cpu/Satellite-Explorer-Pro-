@@ -1054,3 +1054,64 @@ const SatellitePosition = (() => {
   };
 
 })();
+// =========================================================
+// 8. SATELLITE MARKERS
+// =========================================================
+
+function updateMarkers() {
+
+    satellitesData.forEach(sat => {
+
+        if (
+            !Number.isFinite(sat.lat) ||
+            !Number.isFinite(sat.lon)
+        ) return;
+
+        let marker = markerMap.get(sat.norad);
+
+        if (!marker) {
+
+            marker = L.marker(
+                [sat.lat, sat.lon],
+                {
+                    icon: createSatelliteIcon(sat)
+                }
+            );
+
+            marker.addTo(map);
+
+            marker.bindPopup(
+                createSatellitePopup(sat)
+            );
+
+            markerMap.set(sat.norad, marker);
+
+        } else {
+
+            marker.setLatLng([
+                sat.lat,
+                sat.lon
+            ]);
+
+            marker.setPopupContent(
+                createSatellitePopup(sat)
+            );
+        }
+    });
+
+    // Remove outdated markers
+
+    markerMap.forEach((marker, norad) => {
+
+        const exists = satellitesData.some(
+            sat => sat.norad === norad
+        );
+
+        if (!exists) {
+
+            map.removeLayer(marker);
+
+            markerMap.delete(norad);
+        }
+    });
+           }
