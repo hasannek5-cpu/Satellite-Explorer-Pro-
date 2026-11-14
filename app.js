@@ -557,3 +557,385 @@ function getLocation() {
         lon,
         altitude: position.coords.altitude || 0
       };
+      output.innerHTML =
+        'عرض جغرافیایی: ' + lat.toFixed(5) +
+        '<br>طول جغرافیایی: ' + lon.toFixed(5);
+
+      if (userMarker) {
+        map.removeLayer(userMarker);
+      }
+
+      userMarker = L.marker([lat, lon])
+        .addTo(map)
+        .bindPopup('موقعیت فعلی شما')
+        .openPopup();
+
+      map.setView([lat, lon], 7);
+
+      activateTab('map');
+
+      // Aircraft will be fetched after map movement ends.
+      fetchAircraft();
+    },
+
+    error => {
+      output.innerText =
+        error.code === 1
+          ? 'اجازه دسترسی به GPS داده نشد.'
+          : 'دریافت موقعیت ناموفق بود.';
+    },
+
+    {
+      enableHighAccuracy: true,
+      timeout: 25000,
+      maximumAge: 0
+    }
+  );
+}
+
+window.getLocation = getLocation;
+
+// =====================================================
+// 14. PASS PANEL
+// =====================================================
+
+function getPassPanel() {
+  let panel = document.getElementById('passDetails');
+
+  if (!panel) {
+    panel = document.createElement('div');
+    panel.id = 'passDetails';
+    panel.dir = 'rtl';
+
+    panel.style.cssText =
+      'margin:12px 0;padding:15px;border:1px solid #00bcd4;' +
+      'border-radius:12px;background:#101d30;color:white;line-height:2';
+
+    const infoTab = document.getElementById('infoTab');
+    (infoTab || document.body).appendChild(panel);
+  }
+
+  return panel;
+}
+
+// =====================================================
+// 15. SATELLITE LOOK ANGLES
+// =====================================================
+
+function calculateLook(sat, timestamp) {
+  if (!userLocation) return null;
+
+  const date = new Date(timestamp);
+  const result = satellite.propagate(sat.satrec, date);
+
+  if (!result || !result.position ||
+      typeof result.position === 'boolean') {
+    return null;
+  }
+
+  const observer = {
+    longitude: userLocation.lon * Math.PI / 180,
+    latitude: userLocation.lat * Math.PI / 180,
+    height: (userLocation.altitude || 0) / 1000
+  };
+
+  const gmst = satellite.gstime(date);
+  const ecf = satellite.eciToEcf(result.position, gmst);
+  const look = satellite.ecfToLookAngles(observer, ecf);
+
+  const elevation = look.elevation * 180 / Math.PI;
+  const azimuth = (look.azimuth * 180 / Math.PI + 360) % 360;
+  const range = look.rangeSat;
+
+  if (!Number.isFinite(elevation) ||
+      !Number.isFinite(azimuth) ||
+      !Number.isFinite(range)) return null;
+
+  return { elevation, azimuth, range };
+}
+
+// =====================================================
+// 16. REFINE PASS BOUNDARY
+// =====================================================
+
+function refinePassBoundary(sat, left, right) {
+  let low = left;
+  let high = right;
+
+  const first = calculateLook(sat, low);
+  if (!first) return new Date(high);
+
+  const initiallyVisible = first.elevation >= 0;
+
+  for (let i = 0; i < 16; i++) {
+    const mid = (low + high) / 2;
+    const look = calculateLook(sat, mid);
+
+    if (!look) break;
+
+    if ((look.elevation >= 0) === initiallyVisible) {
+      low = mid;
+    } else {
+      high = mid;
+    }
+  }
+
+  return new Date((low + high) / 2);
+}
+
+// =====================================================
+// 17. PASS PREDICTION
+// =====================================================
+
+function predictSatellitePass(norad) {
+  const panel = getPassPanel();
+
+  if (!userLocation) {
+    panel.innerText = 'ابتدا GPS گوشی را دریافت کنید.';
+    return;
+  }
+
+  if (passSearchBusy) return;
+
+  const sat = satellitesData.find(
+    s => s.norad === String(norad)
+  );
+
+  if (!sat || !sat.satrec) {
+    panel.innerText = 'اطلاعات مداری ماهواره یافت نشد.';
+    return;
+  }
+
+  passSearchBusy = true;
+  panel.innerText = 'در حال محاسبه عبورهای ۱۲۰ ساعت آینده...';
+
+  setTimeout(() => {
+    try {
+      const now = Date.now();
+      const duration = 120 * 60 * 60 * 1000;
+      const step = 30000;
+
+      const passes = [];
+      let currentPass = null;
+
+      let previousTime = now;
+      let previousLook = calculateLook(sat, now);
+
+      for (let t = step; t <= duration; t += step) {
+        const timestamp = now + t;
+        const look = calculateLook(sat, timestamp);
+
+        if (!look) {
+          previousTime = timestamp;
+          previousLook = null;
+          continue;
+        }
+
+        const visible = look.elevation >= 0;
+        const wasVisible =
+          previousLook !== null &&
+          previousLook.elevation >= 0;
+
+        if (visible && !wasVisible) {
+          currentPass = {
+            start: previousLook
+              ? refinePassBoundary(sat, previousTime, timestamp)
+              : new Date(timestamp),
+            peak: look.elevation,
+            peakTime: new Date(timestamp),
+            maxAzimuth: look.azimuth,
+            minRange: look.range,
+            end: null
+          };
+        }
+
+        if (visible && currentPass) {
+          if (look.elevation > currentPass.peak) {
+            currentPass.peak = look.elevation;
+            currentPass.peakTime = new Date(timestamp);
+            currentPass.maxAzimuth = look.azimuth;
+          }
+
+          currentPass.minRange = Math.min(
+            currentPass.minRange,
+            look.range
+          );
+        }
+
+        if (!visible && wasVisible && currentPass) {
+          currentPass.end = refinePassBoundary(
+            sat, previousTime, timestamp
+          );
+
+          passes.push(currentPass);
+          currentPass = null;
+        }
+
+        previousTime = timestamp;
+        previousLook = look;
+      }
+
+      if (currentPass) passes.push(currentPass);
+
+      const formatTime = date =>
+        new Date(date).toLocaleString('fa-IR', {
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit',
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit'
+        });
+
+      const durationText = (start, end) => {
+        if (!end) return 'ادامه عبور پس از پایان بازه بررسی';
+
+        const seconds = Math.round((end - start) / 1000);
+
+        return Math.floor(seconds / 60) +
+          ' دقیقه و ' + (seconds % 60) + ' ثانیه';
+      };
+
+      if (!passes.length) {
+        panel.innerHTML = `
+          <h3>🛰️ نتیجه پیش‌بینی</h3>
+          <p>ماهواره: ${escapeHTML(sat.name)}</p>
+          <p>در ۱۲۰ ساعت آینده عبور قابل مشاهده‌ای پیش‌بینی نشد.</p>
+        `;
+        return;
+      }
+
+      panel.innerHTML = `
+        <h3>🛰️ پیش‌بینی عبور ماهواره</h3>
+        <p>نام: ${escapeHTML(sat.name)}</p>
+        <p>NORAD: ${escapeHTML(sat.norad)}</p>
+        <p>تعداد عبورها: ${passes.length}</p>
+        <hr>
+
+        ${passes.map((p, i) => `
+          <div style="background:#183652;padding:12px;
+            margin:12px 0;border-radius:10px">
+            <h4>عبور شماره ${i + 1}</h4>
+            <p>🟢 شروع: ${formatTime(p.start)}</p>
+            <p>⭐ اوج ارتفاع: ${p.peak.toFixed(2)} درجه</p>
+            <p>🕒 زمان اوج: ${formatTime(p.peakTime)}</p>
+            <p>🧭 جهت اوج: ${p.maxAzimuth.toFixed(1)} درجه</p>
+            <p>📏 نزدیک‌ترین فاصله: ${p.minRange.toFixed(1)} کیلومتر</p>
+            <p>🔴 پایان: ${p.end ? formatTime(p.end) : 'ادامه‌دار'}</p>
+            <p>⏱️ مدت: ${durationText(p.start, p.end)}</p>
+          </div>
+        `).join('')}
+
+        <hr>
+        <p style="color:#55dfff">
+          زمان‌ها بر اساس ساعت محلی گوشی نمایش داده شده‌اند.
+        </p>
+        <p style="color:#ffd166;font-size:12px">
+          پیش‌بینی به داده‌های TLE وابسته است و تضمین‌کننده مشاهده واقعی نیست.
+        </p>
+      `;
+
+    } catch (error) {
+      console.error('Pass prediction error:', error);
+      panel.innerText = 'خطای پیش‌بینی: ' + error.message;
+
+    } finally {
+      passSearchBusy = false;
+    }
+  }, 50);
+}
+
+window.predictSatellitePass = predictSatellitePass;
+
+// =====================================================
+// 18. RADIO INFORMATION
+// =====================================================
+
+function renderSatelliteCommunication() {
+  const details = document.getElementById('details');
+
+  if (!details || !selectedNorad) return;
+
+  const sat = satellitesData.find(
+    s => s.norad === selectedNorad
+  );
+
+  if (!sat) return;
+
+  const old = document.getElementById('radioPanel');
+  if (old) old.remove();
+
+  const data = RADIO_DATABASE[sat.norad];
+
+  const panel = document.createElement('section');
+  panel.id = 'radioPanel';
+  panel.dir = 'rtl';
+
+  panel.style.cssText =
+    'margin-top:18px;padding:15px;border:1px solid #00bcd4;' +
+    'border-radius:12px;background:#10243a;color:white;line-height:2';
+
+  const heading = document.createElement('h3');
+  heading.textContent = '📡 اطلاعات ارتباط ماهواره‌ای';
+  panel.appendChild(heading);
+
+  const name = document.createElement('p');
+  name.textContent = 'ماهواره: ' + sat.name;
+  panel.appendChild(name);
+
+  const norad = document.createElement('p');
+  norad.textContent = 'شناسه NORAD: ' + sat.norad;
+  panel.appendChild(norad);
+
+  if (!data) {
+    const message = document.createElement('p');
+    message.textContent =
+      'اطلاعات فرکانسی تأییدشده برای این ماهواره در پایگاه فعلی موجود نیست.';
+    panel.appendChild(message);
+
+  } else {
+    const status = document.createElement('p');
+    status.textContent = 'وضعیت اطلاعات: ' + data.status;
+    panel.appendChild(status);
+
+    data.modes.forEach(mode => {
+      const box = document.createElement('div');
+
+      box.style.cssText =
+        'margin-top:12px;padding:10px;border-radius:9px;background:#183652';
+
+      const title = document.createElement('h4');
+      title.textContent = mode.name;
+
+      const up = document.createElement('p');
+      up.textContent = 'فرکانس ارسال: ' + mode.uplink;
+
+      const down = document.createElement('p');
+      down.textContent = 'فرکانس دریافت: ' + mode.downlink;
+
+      const protocol = document.createElement('p');
+      protocol.textContent = 'پروتکل: ' + mode.protocol;
+
+      box.append(title, up, down, protocol);
+      panel.appendChild(box);
+    });
+
+    const source = document.createElement('a');
+    source.href = data.source;
+    source.target = '_blank';
+    source.rel = 'noopener noreferrer';
+    source.textContent = 'مشاهده منبع اطلاعات';
+    source.style.cssText =
+      'display:block;margin-top:12px;color:#55dfff';
+
+    panel.appendChild(source);
+  }
+
+  const warning = document.createElement('p');
+  warning.style.color = '#ffd166';
+  warning.textContent =
+    'نمایش فرکانس به معنی برقراری ارتباط واقعی نیست. ارسال رادیویی به تجهیزات و مجوز معتبر نیاز دارد.';
+
+  panel.appendChild(warning);
+  details.appendChild(panel);
+    }
