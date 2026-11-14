@@ -124,3 +124,183 @@ function parseTLE(data) {
 
     return satellites;
 }
+
+// =====================================================
+// 8. SATELLITE DATA CONFIGURATION
+// =====================================================
+
+const SATELLITE_CONFIG = {
+    tleUrl: 'https://celestrak.org/NORAD/elements/gp.php?GROUP=stations&FORMAT=tle',
+    refreshInterval: 60000,
+    maxSatellites: 500
+};
+
+let satelliteList = [];
+let satelliteMarkers = new Map();
+let satellitePositions = new Map();
+
+// =====================================================
+// 9. FETCH TLE DATA
+// =====================================================
+
+async function fetchTLEData() {
+
+    try {
+
+        const response = await fetch(
+            SATELLITE_CONFIG.tleUrl,
+            { cache: 'no-store' }
+        );
+
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+        }
+
+        const data = await response.text();
+
+        if (!data.trim()) {
+            throw new Error('داده TLE خالی است.');
+        }
+
+        return parseTLE(data);
+
+    } catch (error) {
+
+        console.error(
+            'Satellite TLE Error:',
+            error
+        );
+
+        return [];
+
+    }
+}
+
+// =====================================================
+// 10. LOAD SATELLITES
+// =====================================================
+
+async function loadSatellites() {
+
+    const data = await fetchTLEData();
+
+    if (!data.length) {
+        console.warn('هیچ ماهواره‌ای دریافت نشد.');
+        return false;
+    }
+
+    satelliteList = data.slice(
+        0,
+        SATELLITE_CONFIG.maxSatellites
+    );
+
+    satellitePositions.clear();
+
+    console.log(
+        `${satelliteList.length} satellites loaded`
+    );
+
+    return true;
+}
+
+// =====================================================
+// 11. CREATE SATELLITE MARKER
+// =====================================================
+
+function createSatelliteMarker(name, lat, lon) {
+
+    const marker = L.circleMarker(
+        [lat, lon],
+        {
+            radius: 6,
+            color: '#00e5ff',
+            weight: 2,
+            fillColor: '#00bcd4',
+            fillOpacity: 0.9
+        }
+    );
+
+    marker.bindPopup(
+        `<b>${escapeHTML(name)}</b><br>
+         Latitude: ${lat.toFixed(4)}<br>
+         Longitude: ${lon.toFixed(4)}`
+    );
+
+    return marker;
+}
+
+// =====================================================
+// 12. UPDATE SATELLITE MARKERS
+// =====================================================
+
+function updateSatelliteMarker(name, lat, lon) {
+
+    if (
+        !Number.isFinite(lat) ||
+        !Number.isFinite(lon)
+    ) {
+        return;
+    }
+
+    let marker = satelliteMarkers.get(name);
+
+    if (!marker) {
+
+        marker = createSatelliteMarker(
+            name,
+            lat,
+            lon
+        );
+
+        satelliteMarkers.set(name, marker);
+
+        marker.addTo(markers);
+
+    } else {
+
+        marker.setLatLng([lat, lon]);
+
+    }
+
+    satellitePositions.set(name, {
+        latitude: lat,
+        longitude: lon,
+        updatedAt: Date.now()
+    });
+}
+
+// =====================================================
+// 13. CLEAR SATELLITE MARKERS
+// =====================================================
+
+function clearSatelliteMarkers() {
+
+    markers.clearLayers();
+
+    satelliteMarkers.clear();
+
+    satellitePositions.clear();
+
+}
+
+// =====================================================
+// 14. SATELLITE INFORMATION
+// =====================================================
+
+function getSatelliteInfo(name) {
+
+    const item = satelliteList.find(
+        satelliteItem =>
+            satelliteItem.name === name
+    );
+
+    if (!item) {
+        return null;
+    }
+
+    return {
+        name: item.name,
+        tle1: item.line1,
+        tle2: item.line2
+    };
+}
