@@ -1115,3 +1115,229 @@ function updateMarkers() {
         }
     });
            }
+// =====================================================
+// 67. EARTH ANALYSIS CONFIGURATION
+// =====================================================
+
+const EARTH_ANALYSIS_CONFIG = {
+    earthRadius: 6371,
+    atmosphereLimit: 100,
+    refreshInterval: 5000
+};
+
+// =====================================================
+// 68. GROUND TRACK CALCULATION
+// =====================================================
+
+function calculateGroundTrack(item, durationMinutes = 90) {
+
+    const points = [];
+    const now = Date.now();
+
+    for (let minute = 0; minute <= durationMinutes; minute += 2) {
+
+        const date = new Date(now + minute * 60000);
+
+        const position = calculateSatellitePosition(
+            item,
+            date
+        );
+
+        if (!position) continue;
+
+        points.push([
+            position.latitude,
+            position.longitude
+        ]);
+    }
+
+    return points;
+}
+
+// =====================================================
+// 69. DRAW SATELLITE ORBIT
+// =====================================================
+
+function drawSatelliteOrbit(name) {
+
+    const item = satelliteList.find(
+        sat => sat.name === name
+    );
+
+    if (!item) return false;
+
+    const points = calculateGroundTrack(item);
+
+    if (points.length < 2) return false;
+
+    const orbit = L.polyline(
+        points,
+        {
+            color: '#00e5ff',
+            weight: 2,
+            opacity: 0.8
+        }
+    );
+
+    orbit.addTo(pathLayer);
+
+    return orbit;
+}
+
+// =====================================================
+// 70. EARTH POSITION ANALYSIS
+// =====================================================
+
+function analyzeSatelliteEarthPosition(name) {
+
+    const position = getSatellitePosition(name);
+
+    if (!position) return null;
+
+    const latitude = position.latitude;
+    const longitude = position.longitude;
+
+    return {
+        name,
+        latitude,
+        longitude,
+        altitude: position.altitude,
+        speed: position.speed,
+
+        hemisphere:
+            latitude >= 0 ? 'Northern' : 'Southern',
+
+        longitudeZone:
+            longitude >= 0 ? 'Eastern' : 'Western',
+
+        aboveAtmosphere:
+            position.altitude > EARTH_ANALYSIS_CONFIG.atmosphereLimit
+    };
+}
+
+// =====================================================
+// 71. PREDICT SATELLITE PASS
+// =====================================================
+
+function predictSatellitePass(
+    name,
+    observerLatitude,
+    observerLongitude,
+    minutes = 180
+) {
+
+    const item = satelliteList.find(
+        sat => sat.name === name
+    );
+
+    if (!item) return null;
+
+    const passes = [];
+    const start = Date.now();
+
+    for (let minute = 0; minute <= minutes; minute++) {
+
+        const position = calculateSatellitePosition(
+            item,
+            new Date(start + minute * 60000)
+        );
+
+        if (!position) continue;
+
+        const distance = calculateDistance(
+            observerLatitude,
+            observerLongitude,
+            position.latitude,
+            position.longitude
+        );
+
+        if (distance < 1000) {
+
+            passes.push({
+                time: new Date(
+                    start + minute * 60000
+                ).toISOString(),
+
+                distance,
+                latitude: position.latitude,
+                longitude: position.longitude,
+                altitude: position.altitude
+            });
+        }
+    }
+
+    return passes;
+}
+
+// =====================================================
+// 72. SATELLITE VISIBILITY ESTIMATION
+// =====================================================
+
+function estimateSatelliteVisibility(name) {
+
+    const position = getSatellitePosition(name);
+
+    if (!position) return null;
+
+    if (!userLocation) {
+        return {
+            visible: null,
+            reason: 'GPS location unavailable'
+        };
+    }
+
+    const distance = calculateDistance(
+        userLocation.latitude,
+        userLocation.longitude,
+        position.latitude,
+        position.longitude
+    );
+
+    return {
+        distance,
+        visible: distance < 1000,
+        estimated: true
+    };
+}
+
+// =====================================================
+// 73. EARTH ANALYSIS DISPLAY
+// =====================================================
+
+function displayEarthAnalysis(name) {
+
+    const result =
+        analyzeSatelliteEarthPosition(name);
+
+    if (!result) return;
+
+    const element =
+        document.getElementById('earth-analysis');
+
+    if (!element) return;
+
+    element.innerHTML = `
+        <h3>${escapeHTML(result.name)}</h3>
+        <p>عرض جغرافیایی: ${result.latitude.toFixed(4)}</p>
+        <p>طول جغرافیایی: ${result.longitude.toFixed(4)}</p>
+        <p>ارتفاع: ${result.altitude.toFixed(2)} کیلومتر</p>
+        <p>سرعت: ${result.speed.toFixed(3)} کیلومتر بر ثانیه</p>
+        <p>نیم‌کره: ${result.hemisphere}</p>
+    `;
+}
+
+// =====================================================
+// 74. CLEAR EARTH ANALYSIS
+// =====================================================
+
+function clearEarthAnalysis() {
+
+    pathLayer.clearLayers();
+
+    const element =
+        document.getElementById('earth-analysis');
+
+    if (element) {
+        element.textContent = 'تحلیل زمین پاک شد.';
+    }
+}
