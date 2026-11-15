@@ -16,14 +16,17 @@ const CONFIG = {
   tleGroups: ['stations','weather','noaa','goes','resource','sarsat','cubesat','education','amateur'],
   tleRefreshMs: 30 * 60 * 1000,
   positionRefreshMs: 5000,
-  orbitMinutes: 180,
   aircraftApi: window.AIRCRAFT_API || 'https://satellite-explorer-pro.onrender.com/api/aircraft',
   aircraftRefreshMs: 20000,
   aircraftTimeoutMs: 15000,
   aircraftMinRadiusNm: 30,
   aircraftMaxRadiusNm: 250,
+  aircraftMinPointDistanceKm: 0.02,
+  aircraftRouteApi: 'https://api.adsbdb.com/v0/callsign/',
+  aircraftRouteTimeoutMs: 10000,
   maxTrailPoints: 300,
   minTrailDistanceKm: 0.02,
+  orbitMinutes: 180,
   passHours: 120,
   passStepMs: 30000
 };
@@ -46,6 +49,9 @@ const aircraftLayer = L.layerGroup().addTo(map);
 const satelliteMarkers = new Map();
 const aircraftMarkers = new Map();
 const aircraftTrails = new Map();
+const aircraftRouteCache = new Map();
+const aircraftRouteLayers = new Map();
+const latestAircraft = new Map();
 
 let satellites = [];
 let selectedSatellite = null;
@@ -494,38 +500,116 @@ function aircraftIcon(heading) {
 
 function normalizeAircraft(raw) {
   const lat=Number(raw.lat), lon=Number(raw.lon);
-  if(!Number.isFinite(lat)||!Number.isFinite(lon)) return null;
+  if(!Number.isFinite(lat)||!Number.isFinite(lon)||Math.abs(lat)>90||Math.abs(lon)>180) return null;
   const icao=String(raw.hex||raw.icao||raw.id||'').trim().toLowerCase();
   if(!icao) return null;
+  const altRaw=raw.alt_baro;
+  const altitude=altRaw==='ground'?0:(Number.isFinite(Number(altRaw))?Number(altRaw)*0.3048:
+    (Number.isFinite(Number(raw.altitude))?Number(raw.altitude):null));
   return {
     icao,lat,lon,
     callsign:String(raw.flight||raw.callsign||'').trim(),
     registration:String(raw.r||raw.registration||'').trim(),
     aircraftType:String(raw.t||raw.type||'').trim(),
     heading:Number.isFinite(Number(raw.track))?Number(raw.track):Number(raw.heading)||0,
-    altitude:raw.alt_baro !== undefined && raw.alt_baro !== null && raw.alt_baro !== 'ground' && Number.isFinite(Number(raw.alt_baro))
-      ? Number(raw.alt_baro)*0.3048
-      : (raw.altitude !== undefined && raw.altitude !== null && Number.isFinite(Number(raw.altitude)) ? Number(raw.altitude) : null),
-    speedKmh:raw.gs !== undefined && raw.gs !== null && Number.isFinite(Number(raw.gs))
-      ? Number(raw.gs)*1.852
-      : (raw.speed !== undefined && raw.speed !== null && Number.isFinite(Number(raw.speed)) ? Number(raw.speed) : null),
-    seenPosition:Number(raw.seen_pos)||Number(raw.seen)||0,
-    onGround:raw.alt_baro==='ground'||raw.on_ground===true
+    altitude,
+    speedKmh:Number.isFinite(Number(raw.gs))?Number(raw.gs)*1.852:
+      (Number.isFinite(Number(raw.speed))?Number(raw.speed):null),
+    verticalRate:Number.isFinite(Number(raw.baro_rate))?Number(raw.baro_rate)*0.00508:null,
+    squawk:String(raw.squawk||'').trim(),
+    emergency:String(raw.emergency||'').trim(),
+    seenPosition:Number(raw.seen_pos??raw.seen)||0,
+    onGround:altRaw==='ground'||raw.on_ground===true,
+    raw
   };
 }
 
 function aircraftPopup(p) {
-  const altitude=Number.isFinite(p.altitude)?`${(p.altitude/1000).toFixed(2)} کیلومتر`:'نامشخص';
-  const speed=Number.isFinite(p.speedKmh)?`${p.speedKmh.toFixed(1)} کیلومتر بر ساعت`:'نامشخص';
-  return `<div dir="rtl" style="line-height:1.9">
-    <b>✈️ ${escapeHTML(p.callsign||p.icao)}</b>
-    <p>شناسه: ${escapeHTML(p.icao)}</p>
-    <p>ثبت: ${escapeHTML(p.registration||'نامشخص')}</p>
-    <p>نوع: ${escapeHTML(p.aircraftType||'نامشخص')}</p>
-    <p>ارتفاع: ${altitude}</p><p>سرعت: ${speed}</p>
-    <p>جهت: ${p.heading.toFixed(1)} درجه</p>
-    <button type="button" onclick="selectAircraft('${escapeHTML(p.icao)}')">انتخاب و نمایش مسیر</button>
+  const altitude=Number.isFinite(p.altitude)?`${Math.round(p.altitude).toLocaleString('fa-IR')} متر`:'نامشخص';
+  const speed=Number.isFinite(p.speedKmh)?`${Math.round(p.speedKmh).toLocaleString('fa-IR')} کیلومتر بر ساعت`:'نامشخص';
+  const vertical=Number.isFinite(p.verticalRate)?`${p.verticalRate.toFixed(1)} متر بر ثانیه`:'نامشخص';
+  return `<div dir="rtl" style="line-height:1.9;min-width:210px">
+    <b>✈️ ${escapeHTML(p.callsign||'شماره پرواز نامشخص')}</b>
+    <p>شناسه ICAO: ${escapeHTML(p.icao)}</p>
+    <p>رجیستر: ${escapeHTML(p.registration||'نامشخص')}</p>
+    <p>شرکت/مدل: ${escapeHTML(p.aircraftType||'نامشخص')}</p>
+    <p>ارتفاع: ${altitude}</p><p>سرعت زمینی: ${speed}</p>
+    <p>جهت حرکت: ${p.heading.toFixed(1)}°</p>
+    <p>نرخ صعود/نزول: ${vertical}</p>
+    <p>کد ترانسپوندر: ${escapeHTML(p.squawk||'نامشخص')}</p>
+    <p>آخرین موقعیت: ${Math.round(p.seenPosition)} ثانیه قبل</p>
+    <button type="button" onclick="selectAircraft('${escapeHTML(p.icao)}')">نمایش اطلاعات مسیر و مبدأ/مقصد</button>
   </div>`;
+}
+
+function routeAirportLabel(airport) {
+  if(!airport) return 'نامشخص';
+  return [airport.name, airport.iata_code || airport.icao_code, airport.municipality, airport.country_name]
+    .filter(Boolean).join(' — ') || 'نامشخص';
+}
+
+async function fetchAircraftRoute(plane) {
+  if(!plane.callsign) return null;
+  const key=plane.callsign.replace(/\s+/g,'').toUpperCase();
+  if(aircraftRouteCache.has(key)) return aircraftRouteCache.get(key);
+  const controller=new AbortController();
+  const timer=setTimeout(()=>controller.abort(),CONFIG.aircraftRouteTimeoutMs);
+  try {
+    const response=await fetch(CONFIG.aircraftRouteApi+encodeURIComponent(key),{cache:'no-store',signal:controller.signal});
+    if(!response.ok) throw new Error(`Route HTTP ${response.status}`);
+    const body=await response.json();
+    const root=body.response||body;
+    const route=root.flightroute||root.route||null;
+    if(!route) throw new Error('اطلاعات مسیر برای این شماره پرواز ثبت نشده است.');
+    const result={
+      callsign:route.callsign||key,
+      airline:route.airline||null,
+      origin:route.origin||null,
+      midpoint:route.midpoint||null,
+      destination:route.destination||null
+    };
+    aircraftRouteCache.set(key,result);
+    return result;
+  } catch(error) {
+    console.warn('Aircraft route lookup:',key,error);
+    return {error:error.message};
+  } finally { clearTimeout(timer); }
+}
+
+function drawAircraftRoute(id, route) {
+  const old=aircraftRouteLayers.get(id);
+  if(old) { aircraftLayer.removeLayer(old); aircraftRouteLayers.delete(id); }
+  if(!route || route.error) return;
+  const airports=[route.origin,route.midpoint,route.destination].filter(a=>a && Number.isFinite(Number(a.latitude)) && Number.isFinite(Number(a.longitude)));
+  if(airports.length<2) return;
+  const points=airports.map(a=>[Number(a.latitude),Number(a.longitude)]);
+  const group=L.layerGroup();
+  L.polyline(points,{color:'#00e5ff',weight:3,opacity:.9,dashArray:'9,7'}).addTo(group);
+  airports.forEach((airport,index)=>{
+    const label=index===0?'مبدأ':(index===airports.length-1?'مقصد':'توقف');
+    L.circleMarker([Number(airport.latitude),Number(airport.longitude)],{
+      radius:7,color:'#fff',weight:2,fillColor:index===0?'#16a34a':(index===airports.length-1?'#ef4444':'#f59e0b'),fillOpacity:1
+    }).bindPopup(`<div dir="rtl"><b>${label}</b><br>${escapeHTML(routeAirportLabel(airport))}</div>`).addTo(group);
+  });
+  group.addTo(aircraftLayer);
+  aircraftRouteLayers.set(id,group);
+}
+
+function showAircraftRouteDetails(plane, route) {
+  const marker=aircraftMarkers.get(plane.icao);
+  if(!marker) return;
+  const airline=route?.airline;
+  const origin=route?.origin;
+  const destination=route?.destination;
+  const midpoint=route?.midpoint;
+  const routeText=route?.error
+    ? `<p>مبدأ و مقصد: ${escapeHTML(route.error)}</p>`
+    : `<p><b>شرکت هواپیمایی:</b> ${escapeHTML(airline?.name||'نامشخص')}</p>
+       <p><b>مبدأ:</b> ${escapeHTML(routeAirportLabel(origin))}</p>
+       ${midpoint?`<p><b>توقف میانی:</b> ${escapeHTML(routeAirportLabel(midpoint))}</p>`:''}
+       <p><b>مقصد:</b> ${escapeHTML(routeAirportLabel(destination))}</p>
+       <p style="font-size:11px">خط فیروزه‌ای مسیر برنامه‌ریزی‌شده بین فرودگاه‌هاست، نه مسیر دقیق ثبت‌شده هواپیما.</p>`;
+  marker.bindPopup(aircraftPopup(plane).replace('</div>',`${routeText}</div>`)).openPopup();
 }
 
 function recordAircraftPosition(plane) {
@@ -533,7 +617,7 @@ function recordAircraftPosition(plane) {
   let points=aircraftTrails.get(id)||[];
   const next=[plane.lat,plane.lon];
   const last=points[points.length-1];
-  if(last && distanceKm(last[0],last[1],next[0],next[1])<CONFIG.minTrailDistanceKm) return;
+  if(last && distanceKm(last[0],last[1],next[0],next[1])<CONFIG.aircraftMinPointDistanceKm) return;
   points.push(next);
   if(points.length>CONFIG.maxTrailPoints) points.shift();
   aircraftTrails.set(id,points);
@@ -547,6 +631,7 @@ function renderAircraft(planes) {
   const active=new Set();
   planes.forEach(p=>{
     active.add(p.icao);
+    latestAircraft.set(p.icao,p);
     recordAircraftPosition(p);
     let marker=aircraftMarkers.get(p.icao);
     if(!marker) {
@@ -568,17 +653,22 @@ function renderAircraft(planes) {
   setText('aircraftCount',`تعداد هواپیماهای قابل مشاهده: ${planes.length}`);
 }
 
-function selectAircraft(id) {
-  const marker=aircraftMarkers.get(String(id));
+async function selectAircraft(id) {
+  const key=String(id);
+  const marker=aircraftMarkers.get(key);
   if(!marker) return;
-  selectedAircraftId=String(id);
+  selectedAircraftId=key;
   if(selectedAircraftPath) aircraftLayer.removeLayer(selectedAircraftPath);
   const points=aircraftTrails.get(selectedAircraftId)||[];
-  selectedAircraftPath=L.polyline(points,{
-    color:'#ff9800',weight:3,opacity:.9
-  }).addTo(aircraftLayer);
-  marker.openPopup();
+  selectedAircraftPath=L.polyline(points,{color:'#ff9800',weight:3,opacity:.95}).addTo(aircraftLayer);
   marker.setZIndexOffset(1000);
+  const plane=latestAircraft.get(key);
+  if(!plane) { marker.openPopup(); return; }
+  marker.bindPopup(aircraftPopup(plane).replace('</div>','<p>در حال دریافت مبدأ و مقصد...</p></div>')).openPopup();
+  const route=await fetchAircraftRoute(plane);
+  if(selectedAircraftId!==key) return;
+  drawAircraftRoute(key,route);
+  showAircraftRouteDetails(plane,route);
 }
 window.selectAircraft=selectAircraft;
 
@@ -596,12 +686,6 @@ async function fetchAircraft() {
   aircraftBusy=true;
   setAircraftStatus('در حال دریافت اطلاعات پروازها...');
   const center=aircraftCenter();
-  if (!Number.isFinite(center.lat) || !Number.isFinite(center.lon) ||
-      center.lat < -90 || center.lat > 90 || center.lon < -180 || center.lon > 180) {
-    setAircraftStatus('مختصات مرکز نقشه معتبر نیست.');
-    aircraftBusy=false;
-    return;
-  }
   const radius=aircraftRadiusNm();
   const controller=new AbortController();
   const timeout=setTimeout(()=>controller.abort(),CONFIG.aircraftTimeoutMs);
@@ -611,10 +695,10 @@ async function fetchAircraft() {
     if(api.includes('/v2/lat')) {
       url.pathname=`/v2/lat/${center.lat}/lon/${center.lon}/dist/${Math.round(radius*1852)}`;
     } else {
-      // Render API 8.1.0 validates lat/lon and applies its configured search radius.
-      // Do not send the frontend's nautical-mile value as `dist` (wrong unit/contract).
-      url.searchParams.set('lat',String(center.lat));
-      url.searchParams.set('lon',String(center.lon));
+      url.searchParams.set('lat',center.lat);
+      url.searchParams.set('lon',center.lon);
+      url.searchParams.set('dist',Math.round(radius*1.852));
+      url.searchParams.set('radiusKm',Math.round(radius*1.852));
     }
     const response=await fetch(url.toString(),{
       signal:controller.signal,
@@ -627,12 +711,8 @@ async function fetchAircraft() {
       (Array.isArray(data)?data:[]));
     const planes=raw.map(normalizeAircraft).filter(Boolean)
       .filter(p=>!p.onGround && p.seenPosition<120);
-    if (data.refreshing === true && planes.length === 0) {
-      setAircraftStatus(`سرور در حال تکمیل دریافت اطلاعات است (${data.progress?.completed ?? 0}/${data.progress?.total ?? 0})`);
-      return;
-    }
     renderAircraft(planes);
-    setAircraftStatus(`به‌روزرسانی موفق | ${new Date().toLocaleTimeString('fa-IR')} | ${planes.length} هواپیما`);
+    setAircraftStatus(`به‌روزرسانی موفق | ${new Date().toLocaleTimeString('fa-IR')}`);
   } catch(error) {
     console.warn('Aircraft API error:',error);
     setAircraftStatus(
