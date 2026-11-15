@@ -1004,27 +1004,52 @@ function selectAircraft(icao) {
 }
 
 function recordAircraftPosition(plane) {
-  const id = plane.icao;
+
+  const id = String(plane.icao).toLowerCase();
 
   if (!aircraftTrails.has(id)) {
     aircraftTrails.set(id, []);
   }
 
   const points = aircraftTrails.get(id);
-  const next = [plane.lat, plane.lon];
+
+  const next = [
+    plane.lat,
+    plane.lon
+  ];
 
   if (points.length > 0) {
+
     const last = points[points.length - 1];
 
     const distance = aircraftDistanceKm(
-      last[0], last[1],
-      next[0], next[1]
+      last[0],
+      last[1],
+      next[0],
+      next[1]
     );
 
     if (distance < AIRCRAFT_MIN_POINT_DISTANCE_KM) {
       return;
     }
   }
+
+  points.push(next);
+
+  if (points.length > AIRCRAFT_MAX_TRAIL_POINTS) {
+    points.shift();
+  }
+
+  if (
+    selectedAircraftId === id &&
+    selectedAircraftPath
+  ) {
+
+    selectedAircraftPath.setLatLngs(points);
+
+    selectedAircraftPath.bringToFront();
+  }
+}
 
   points.push(next);
 
