@@ -1,0 +1,11 @@
+در فایل app.js فقط آدرس مستقیم ADSB را با این آدرس جایگزین کن:
+
+    const url =
+      'https://satellite-explorer-aircraft.onrender.com/api/aircraft?lat=' +
+      encodeURIComponent(userLocation.lat) +
+      '&lon=' +
+      encodeURIComponent(userLocation.lon) +
+      '&dist=' +
+      AIRCRAFT_RADIUS_NM;
+
+این جایگزینی در تابع fetchAircraft انجام می‌شود؛ سایر کدهای app.js را دست نزن.
