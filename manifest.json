@@ -1,34 +1,14 @@
-
 {
-  "id": "./",
-  "name": "کاوشگر ماهواره نظامی-غیرنظامی",
+  "id": "/Satellite-Explorer-Pro1/",
+  "name": "کاوشگر ماهواره غیرنظامی",
   "short_name": "کاوشگر ماهواره",
-  "description": "سامانه حرفه‌ای نمایش نقشه ماهواره‌ای، بررسی ماهواره‌های غیرنظامی، موقعیت‌یابی GPS و تحلیل زمین",
+  "description": "سامانه حرفه‌ای نمایش نقشه و بررسی ماهواره‌های غیرنظامی",
   "lang": "fa",
   "dir": "rtl",
-  "start_url": "./",
-  "scope": "./",
+  "start_url": "/Satellite-Explorer-Pro1/",
+  "scope": "/Satellite-Explorer-Pro1/",
   "display": "standalone",
   "orientation": "portrait",
   "background_color": "#071426",
-  "theme_color": "#071426",
-  "categories": [
-    "navigation",
-    "utilities",
-    "education"
-  ],
-  "icons": [
-    {
-      "src": "./icon-192.png",
-      "sizes": "192x192",
-      "type": "image/png",
-      "purpose": "any"
-    },
-    {
-      "src": "./icon-512.png",
-      "sizes": "512x512",
-      "type": "image/png",
-      "purpose": "any"
-    }
-  ]
+  "theme_color": "#071426"
 }
