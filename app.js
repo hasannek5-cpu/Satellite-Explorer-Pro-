@@ -883,22 +883,73 @@ function renderSatelliteCommunication() {
   details.appendChild(panel);
 }
 
-// ====================================================
-// 19. LIVE AIRCRAFT TRACKING PRO
-// MAP CENTER + GPS + AUTO REFRESH
+// =====================================================
+// AIRCRAFT LIVE ROUTE TRACKING - EXTENDED
 // =====================================================
 
-const AIRCRAFT_REFRESH_MS = 20000;
-const AIRCRAFT_TIMEOUT_MS = 20000;
+const aircraftTrails = new Map();
 
-const AIRCRAFT_MAX_RADIUS_NM = 250;
-const AIRCRAFT_MIN_RADIUS_NM = 25;
+let selectedAircraftId = null;
+let selectedAircraftPath = null;
 
-const AIRCRAFT_API =
-  'https://satellite-explorer-pro.onrender.com/api/aircraft';
+const AIRCRAFT_MAX_TRAIL_POINTS = 5000;
+const AIRCRAFT_MIN_POINT_DISTANCE_KM = 0.02;
 
-const aircraftLayer = L.layerGroup().addTo(map);
-const aircraftMarkers = new Map();
+// Keep route until another aircraft is selected
+// or user clears selection.
+
+function selectAircraft(icao) {
+
+  const id = String(icao).toLowerCase();
+
+  const marker = aircraftMarkers.get(id);
+
+  if (!marker) return;
+
+  selectedAircraftId = id;
+
+  if (selectedAircraftPath) {
+    map.removeLayer(selectedAircraftPath);
+    selectedAircraftPath = null;
+  }
+
+  if (!aircraftTrails.has(id)) {
+    aircraftTrails.set(id, []);
+  }
+
+  const points = aircraftTrails.get(id);
+
+  selectedAircraftPath = L.polyline(points, {
+    color: '#ff0000',
+    weight: 5,
+    opacity: 1,
+    lineCap: 'round',
+    lineJoin: 'round'
+  }).addTo(map);
+
+  selectedAircraftPath.bringToFront();
+
+  marker.openPopup();
+
+  setAircraftStatus(
+    '✈️ مسیر هواپیمای ' + id + ' در حال ثبت و نمایش است.'
+  );
+}
+
+function clearAircraftSelection() {
+
+  selectedAircraftId = null;
+
+  if (selectedAircraftPath) {
+    map.removeLayer(selectedAircraftPath);
+    selectedAircraftPath = null;
+  }
+
+  setAircraftStatus('انتخاب پرواز لغو شد.');
+}
+
+window.selectAircraft = selectAircraft;
+window.clearAircraftSelection = clearAircraftSelection;
 
 // =====================================================
 // AIRCRAFT LIVE ROUTE TRACKING
