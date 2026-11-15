@@ -303,22 +303,23 @@ function updateMarkers() {
     let marker = markerMap.get(sat.norad);
 
     if (!marker) {
-      marker = L.circleMarker([sat.lat, sat.lon], {
-        radius: 6,
-        color: '#00e5ff',
-        fillColor: '#008cff',
-        fillOpacity: 0.95,
-        weight: 2
-      });
 
-      marker.on('click', () => {
-        showSatelliteInfo(sat.norad);
-      });
+  marker = L.marker(
+    [plane.lat, plane.lon],
+    {
+      icon: createAircraftIcon(plane.heading),
+      zIndexOffset: 1200
+    }
+  ).addTo(aircraftLayer);
 
-      marker.addTo(markers);
-      markerMap.set(sat.norad, marker);
+  aircraftMarkers.set(plane.icao, marker);
 
-    } else {
+  // اتصال کلیک به انتخاب هواپیما و نمایش مسیر
+  marker.on('click', function () {
+    selectAircraft(plane.icao);
+  });
+
+} else { 
       marker.setLatLng([sat.lat, sat.lon]);
     }
 
