@@ -952,15 +952,6 @@ function clearAircraftSelection() {
 window.selectAircraft = selectAircraft;
 window.clearAircraftSelection = clearAircraftSelection;
 
-// =====================================================
-// AIRCRAFT LIVE ROUTE TRACKING
-// =====================================================
-
-const aircraftTrails = new Map();
-
-let selectedAircraftId = null;
-let selectedAircraftPath = null;
-
 const AIRCRAFT_MAX_TRAIL_POINTS = 300;
 const AIRCRAFT_MIN_POINT_DISTANCE_KM = 0.02;
 
