@@ -16,7 +16,8 @@ const CONFIG = {
   tleGroups: ['stations','weather','noaa','goes','resource','sarsat','cubesat','education','amateur'],
   tleRefreshMs: 30 * 60 * 1000,
   positionRefreshMs: 5000,
-  aircraftApi: window.AIRCRAFT_API || '/api/aircraft',
+  orbitMinutes: 180,
+  aircraftApi: window.AIRCRAFT_API || 'https://satellite-explorer-pro.onrender.com/api/aircraft',
   aircraftRefreshMs: 20000,
   aircraftTimeoutMs: 15000,
   aircraftMinRadiusNm: 30,
@@ -502,10 +503,12 @@ function normalizeAircraft(raw) {
     registration:String(raw.r||raw.registration||'').trim(),
     aircraftType:String(raw.t||raw.type||'').trim(),
     heading:Number.isFinite(Number(raw.track))?Number(raw.track):Number(raw.heading)||0,
-    altitude:Number.isFinite(Number(raw.alt_baro))?Number(raw.alt_baro)*0.3048:
-      (Number.isFinite(Number(raw.altitude))?Number(raw.altitude):null),
-    speedKmh:Number.isFinite(Number(raw.gs))?Number(raw.gs)*1.852:
-      (Number.isFinite(Number(raw.speed))?Number(raw.speed):null),
+    altitude:raw.alt_baro !== undefined && raw.alt_baro !== null && raw.alt_baro !== 'ground' && Number.isFinite(Number(raw.alt_baro))
+      ? Number(raw.alt_baro)*0.3048
+      : (raw.altitude !== undefined && raw.altitude !== null && Number.isFinite(Number(raw.altitude)) ? Number(raw.altitude) : null),
+    speedKmh:raw.gs !== undefined && raw.gs !== null && Number.isFinite(Number(raw.gs))
+      ? Number(raw.gs)*1.852
+      : (raw.speed !== undefined && raw.speed !== null && Number.isFinite(Number(raw.speed)) ? Number(raw.speed) : null),
     seenPosition:Number(raw.seen_pos)||Number(raw.seen)||0,
     onGround:raw.alt_baro==='ground'||raw.on_ground===true
   };
@@ -530,7 +533,7 @@ function recordAircraftPosition(plane) {
   let points=aircraftTrails.get(id)||[];
   const next=[plane.lat,plane.lon];
   const last=points[points.length-1];
-  if(last && distanceKm(last[0],last[1],next[0],next[1])<CONFIG.aircraftMinPointDistanceKm) return;
+  if(last && distanceKm(last[0],last[1],next[0],next[1])<CONFIG.minTrailDistanceKm) return;
   points.push(next);
   if(points.length>CONFIG.maxTrailPoints) points.shift();
   aircraftTrails.set(id,points);
@@ -593,6 +596,12 @@ async function fetchAircraft() {
   aircraftBusy=true;
   setAircraftStatus('در حال دریافت اطلاعات پروازها...');
   const center=aircraftCenter();
+  if (!Number.isFinite(center.lat) || !Number.isFinite(center.lon) ||
+      center.lat < -90 || center.lat > 90 || center.lon < -180 || center.lon > 180) {
+    setAircraftStatus('مختصات مرکز نقشه معتبر نیست.');
+    aircraftBusy=false;
+    return;
+  }
   const radius=aircraftRadiusNm();
   const controller=new AbortController();
   const timeout=setTimeout(()=>controller.abort(),CONFIG.aircraftTimeoutMs);
@@ -602,9 +611,10 @@ async function fetchAircraft() {
     if(api.includes('/v2/lat')) {
       url.pathname=`/v2/lat/${center.lat}/lon/${center.lon}/dist/${Math.round(radius*1852)}`;
     } else {
-      url.searchParams.set('lat',center.lat);
-      url.searchParams.set('lon',center.lon);
-      url.searchParams.set('dist',radius);
+      // Render API 8.1.0 validates lat/lon and applies its configured search radius.
+      // Do not send the frontend's nautical-mile value as `dist` (wrong unit/contract).
+      url.searchParams.set('lat',String(center.lat));
+      url.searchParams.set('lon',String(center.lon));
     }
     const response=await fetch(url.toString(),{
       signal:controller.signal,
@@ -617,8 +627,12 @@ async function fetchAircraft() {
       (Array.isArray(data)?data:[]));
     const planes=raw.map(normalizeAircraft).filter(Boolean)
       .filter(p=>!p.onGround && p.seenPosition<120);
+    if (data.refreshing === true && planes.length === 0) {
+      setAircraftStatus(`سرور در حال تکمیل دریافت اطلاعات است (${data.progress?.completed ?? 0}/${data.progress?.total ?? 0})`);
+      return;
+    }
     renderAircraft(planes);
-    setAircraftStatus(`به‌روزرسانی موفق | ${new Date().toLocaleTimeString('fa-IR')}`);
+    setAircraftStatus(`به‌روزرسانی موفق | ${new Date().toLocaleTimeString('fa-IR')} | ${planes.length} هواپیما`);
   } catch(error) {
     console.warn('Aircraft API error:',error);
     setAircraftStatus(
