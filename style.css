@@ -1,73 +1,477 @@
 
+/* =====================================================
+   SATELLITE EXPLORER PRO
+   COMPACT SPACE UI — MOBILE & DESKTOP
+   ===================================================== */
+
+:root {
+  --bg: #061426;
+  --bg2: #0a1d33;
+  --panel: #0d2540;
+  --panel2: #102d4c;
+  --border: #20476b;
+  --accent: #08b9ed;
+  --accent2: #48d9ff;
+  --text: #eaf4ff;
+  --muted: #91abc7;
+  --success: #19dc78;
+  --radius: 13px;
+}
+
 * {
   box-sizing: border-box;
 }
 
+html,
 body {
+  width: 100%;
+  min-height: 100%;
   margin: 0;
-  background: #071426;
-  color: #eaf2ff;
+  padding: 0;
+  background: var(--bg);
+  color: var(--text);
   font-family: Tahoma, Arial, sans-serif;
 }
 
-header {
-  text-align: center;
-  padding: 18px;
-  background: #10243d;
-  border-bottom: 1px solid #294363;
-}
-
-header h2 {
-  margin: 0;
-  color: #49d8ff;
-}
-
-header p {
-  color: #a8bfd9;
-}
-
-nav {
-  display: flex;
-  justify-content: center;
-  gap: 10px;
-  padding: 14px;
-}
-
-button {
-  border: 1px solid #355274;
-  background: #173252;
-  color: white;
-  border-radius: 10px;
-  padding: 12px 18px;
-  font-size: 15px;
-}
-
-button:active {
-  background: #1677d2;
-}
-
-section {
-  padding: 12px;
-}
-
-#map {
-  height: 65vh;
-  min-height: 350px;
-  border-radius: 14px;
-  overflow: hidden;
-  border: 1px solid #294363;
-}
-
-#details,
-#location {
-  background: #10243d;
-  padding: 15px;
-  border-radius: 12px;
-  margin-top: 15px;
-  line-height: 2;
+body {
+  overflow-x: hidden;
+  padding-bottom: env(safe-area-inset-bottom);
 }
 
 [hidden] {
   display: none !important;
 }
 
+/* ================= HEADER ================= */
+
+header {
+  height: 57px;
+  padding: 0 13px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: linear-gradient(110deg, #07172b, #102c49);
+  border-bottom: 1px solid var(--border);
+  box-shadow: 0 3px 15px #0005;
+}
+
+header h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--accent2);
+}
+
+header p {
+  margin: 3px 0 0;
+  font-size: 10px;
+  color: var(--muted);
+}
+
+.header-status {
+  font-size: 11px;
+  color: var(--success);
+  white-space: nowrap;
+}
+
+/* ================= TOOLBAR ================= */
+
+.toolbar {
+  position: relative;
+  z-index: 1100;
+  padding: 6px 10px;
+  background: #091b30;
+  border-bottom: 1px solid var(--border);
+}
+
+.menu-toggle {
+  width: 100%;
+  height: 36px;
+  min-height: 36px;
+  padding: 0 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--panel);
+  color: var(--text);
+  font-size: 12px;
+}
+
+/* ================= NAVIGATION ================= */
+
+nav {
+  display: none;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+  padding: 8px 0 2px;
+}
+
+nav.open {
+  display: grid;
+}
+
+nav button {
+  min-width: 0;
+  min-height: 36px;
+  padding: 6px 3px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--text);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+nav button.active {
+  background: #07527a;
+  border-color: var(--accent);
+  color: #fff;
+  box-shadow: 0 0 9px #08b9ed35;
+}
+
+/* ================= GENERAL BUTTONS ================= */
+
+button {
+  cursor: pointer;
+  font-family: inherit;
+  transition: background .2s, border-color .2s;
+  -webkit-tap-highlight-color: transparent;
+}
+
+button:active {
+  background: #086b9b;
+}
+
+button:focus-visible {
+  outline: 2px solid var(--accent2);
+  outline-offset: 2px;
+}
+
+/* ================= MAIN ================= */
+
+main {
+  width: 100%;
+  padding: 5px;
+}
+
+section {
+  padding: 0;
+}
+
+/* ================= MAP ================= */
+
+#mapTab {
+  position: relative;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+#map {
+  width: 100%;
+  height: calc(100dvh - 108px);
+  min-height: 360px;
+  border: 1px solid #1e476a;
+  border-radius: 11px;
+  overflow: hidden;
+  background: #10243a;
+  box-shadow: 0 3px 16px #0005;
+}
+
+/* Leaflet controls */
+
+.leaflet-control-zoom {
+  border: 1px solid var(--border) !important;
+  border-radius: 10px !important;
+  overflow: hidden;
+  box-shadow: 0 3px 12px #0007 !important;
+}
+
+.leaflet-control-zoom a {
+  width: 32px !important;
+  height: 32px !important;
+  line-height: 32px !important;
+  background: #0b2541 !important;
+  color: white !important;
+  border-bottom: 1px solid var(--border) !important;
+}
+
+.leaflet-control-attribution {
+  background: #071426d9 !important;
+  color: #c6d9ed !important;
+  font-size: 9px !important;
+}
+
+.leaflet-control-attribution a {
+  color: var(--accent2) !important;
+}
+
+/* ================= MAP HOME ================= */
+
+.map-home {
+  position: fixed;
+  z-index: 1200;
+  left: 13px;
+  bottom: calc(17px + env(safe-area-inset-bottom));
+  width: 42px;
+  height: 42px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--accent);
+  border-radius: 50%;
+  background: #092d4c;
+  color: white;
+  font-size: 23px;
+  box-shadow: 0 3px 14px #0009, 0 0 10px #08b9ed30;
+}
+
+/* ================= INFORMATION PANELS ================= */
+
+#infoTab,
+#gpsTab,
+#earthTab {
+  margin: 5px 0;
+  padding: 11px;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+h3 {
+  margin: 7px 0 11px;
+  font-size: 14px;
+  color: var(--accent2);
+}
+
+h4 {
+  margin: 10px 0 7px;
+  font-size: 12px;
+  color: #c9e7ff;
+}
+
+#details,
+#satelliteList,
+#location {
+  margin: 8px 0;
+  padding: 10px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  font-size: 12px;
+  line-height: 1.9;
+  overflow-wrap: anywhere;
+}
+
+/* ================= GPS ================= */
+
+#gpsTab button,
+.sensor-panel button {
+  min-height: 35px;
+  padding: 8px 12px;
+  margin: 4px 0;
+  border: 1px solid #087eae;
+  border-radius: 8px;
+  background: #075681;
+  color: white;
+  font-size: 12px;
+}
+
+.sensor-panel {
+  margin: 8px 0;
+  padding: 10px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.sensor-result {
+  font-size: 12px;
+  line-height: 1.9;
+  overflow-wrap: anywhere;
+}
+
+#selectedCoordinates {
+  color: var(--accent2);
+  font-size: 11px;
+  line-height: 1.9;
+}
+
+#earthTab > p {
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.9;
+}
+
+/* ================= COMPACT MAP PANELS ================= */
+
+/* برای پنل‌هایی که داخل نقشه ایجاد می‌شوند */
+
+#mapTab .flight-panel,
+#mapTab .aircraft-panel,
+#mapTab .map-panel,
+#mapTab .layer-panel,
+#mapTab .map-layers,
+#mapTab .control-panel {
+  max-width: calc(100% - 16px);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: #081d34ed;
+  color: var(--text);
+  box-shadow: 0 4px 15px #0006;
+  backdrop-filter: blur(9px);
+}
+
+/* دکمه‌های پنل نقشه */
+
+#mapTab .flight-panel button,
+#mapTab .aircraft-panel button,
+#mapTab .map-panel button,
+#mapTab .layer-panel button,
+#mapTab .map-layers button {
+  min-height: 30px;
+  padding: 6px 9px;
+  border-radius: 8px;
+  font-size: 11px;
+}
+
+/* ================= SCROLLBAR ================= */
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #235274 #071426;
+}
+
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+::-webkit-scrollbar-track {
+  background: #071426;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #235274;
+  border-radius: 10px;
+}
+
+/* ================= MOBILE ================= */
+
+@media (max-width: 480px) {
+
+  header {
+    height: 51px;
+    padding: 0 10px;
+  }
+
+  header h2 {
+    font-size: 14px;
+  }
+
+  .header-status {
+    font-size: 10px;
+  }
+
+  .toolbar {
+    padding: 5px 8px;
+  }
+
+  .menu-toggle {
+    height: 34px;
+    min-height: 34px;
+    font-size: 11px;
+  }
+
+  nav {
+    gap: 5px;
+    padding-top: 6px;
+  }
+
+  nav button {
+    min-height: 34px;
+    font-size: 10px;
+  }
+
+  main {
+    padding: 3px;
+  }
+
+  #map {
+    height: calc(100dvh - 98px);
+    min-height: 340px;
+    border-radius: 9px;
+  }
+
+  #infoTab,
+  #gpsTab,
+  #earthTab {
+    padding: 9px;
+  }
+
+  h3 {
+    font-size: 13px;
+  }
+
+  .map-home {
+    width: 39px;
+    height: 39px;
+    left: 10px;
+  }
+}
+
+/* ================= TABLET & DESKTOP ================= */
+
+@media (min-width: 700px) {
+
+  header {
+    height: 62px;
+    padding: 0 22px;
+  }
+
+  header h2 {
+    font-size: 19px;
+  }
+
+  .toolbar {
+    padding: 7px 15px;
+  }
+
+  main {
+    padding: 7px;
+  }
+
+  #map {
+    height: calc(100dvh - 111px);
+  }
+
+  nav button {
+    font-size: 12px;
+  }
+}
+
+/* ================= SMALL HEIGHT SCREENS ================= */
+
+@media (max-height: 520px) {
+
+  header {
+    height: 43px;
+  }
+
+  .toolbar {
+    padding: 3px 8px;
+  }
+
+  .menu-toggle {
+    min-height: 30px;
+    height: 30px;
+  }
+
+  #map {
+    height: calc(100dvh - 85px);
+    min-height: 250px;
+  }
+}
