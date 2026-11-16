@@ -17,7 +17,8 @@
 <link rel="manifest" href="/Satellite-Explorer-Pro/manifest.json">
 <link rel="icon" type="image/png" href="/Satellite-Explorer-Pro/icon-192.png">
 <link rel="apple-touch-icon" href="/Satellite-Explorer-Pro/icon-192.png">
-
+<link rel="manifest"
+      href="/Satellite-Explorer-Pro-/manifest.json">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <link rel="stylesheet" href="./style.css">
 
@@ -363,6 +364,16 @@ if('serviceWorker' in navigator){
   });
 }
 </script>
-
+  
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register(
+      "/Satellite-Explorer-Pro-/service-worker.js",
+      { scope: "/Satellite-Explorer-Pro-/" }
+    );
+  });
+}
+  </script>
+  
 </body>
 </html>
