@@ -283,7 +283,34 @@ function getLocation() {
     return;
   }
   showMessage('در حال دریافت موقعیت GPS...');
-  navigator.geolocation.getCurrentPosition(position => {
+  navigator.geolocation.getCurrentPosition(
+  function(position) {
+    const lat = position.coords.latitude;
+    const lon = position.coords.longitude;
+    const accuracy = position.coords.accuracy;
+
+    console.log("GPS:", lat, lon, accuracy);
+
+    // نمایش موقعیت روی نقشه
+    if (typeof map !== "undefined") {
+      map.setView([lat, lon], 15);
+    }
+  },
+  function(error) {
+    const messages = {
+      1: "دسترسی GPS رد شد",
+      2: "موقعیت GPS در دسترس نیست",
+      3: "زمان دریافت GPS تمام شد"
+    };
+
+    alert(messages[error.code] || "خطای GPS");
+  },
+  {
+    enableHighAccuracy: true,
+    timeout: 60000,
+    maximumAge: 10000
+  }
+);
     const c = position.coords;
     userPosition = {lat:c.latitude,lon:c.longitude,altitude:c.altitude || 0,accuracy:c.accuracy};
     const ll = [c.latitude,c.longitude];
