@@ -32,14 +32,384 @@ const CONFIG = {
   gpsTimeoutMs: 60000,
   gpsMaximumAgeMs: 10000
 };
-
 const map = window.map = L.map('map', {
   zoomControl: true, preferCanvas: true, worldCopyJump: true
 }).setView([32, 53], 4);
 
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-  attribution: '&copy; OpenStreetMap contributors', maxZoom: 19
-}).addTo(map);
+// ==================== FUTURISTIC MAP THEMES ====================
+
+const MAP_THEMES = {
+  standard: {
+    name: 'استاندارد',
+    icon: '🗺️',
+    url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+    attribution: '&copy; OpenStreetMap',
+    maxZoom: 19
+  },
+
+  satellite: {
+    name: 'ماهواره‌ای',
+    icon: '🛰️',
+    url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+    attribution: 'Tiles &copy; Esri',
+    maxZoom: 19
+  },
+
+  dark: {
+    name: 'تاریک فضایی',
+    icon: '🌌',
+    url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+    attribution: '&copy; CARTO',
+    maxZoom: 20
+  },
+
+  topo: {
+    name: 'توپوگرافی',
+    icon: '⛰️',
+    url: 'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',
+    attribution: '&copy; OpenTopoMap',
+    maxZoom: 17
+  },
+
+  light: {
+    name: 'روشن',
+    icon: '☀️',
+    url: 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
+    attribution: '&copy; CARTO',
+    maxZoom: 20
+  },
+
+  earth: {
+    name: 'زمین از فضا',
+    icon: '🌍',
+    url: 'https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/BlueMarble_NextGeneration/default/GoogleMapsCompatible_Level8/{z}/{y}/{x}.jpg',
+    attribution: 'NASA GIBS',
+    maxZoom: 8
+  }
+};
+
+let activeMapTheme = 'standard';
+let activeBaseLayer = null;
+
+function changeMapTheme(themeId) {
+  const theme = MAP_THEMES[themeId];
+  if (!theme) return;
+
+  if (activeBaseLayer) {
+    map.removeLayer(activeBaseLayer);
+  }
+
+  activeBaseLayer = L.tileLayer(theme.url, {
+    attribution: theme.attribution,
+    maxZoom: theme.maxZoom,
+    minZoom: 1,
+    subdomains: 'abcd',
+    crossOrigin: true
+  });
+
+  activeBaseLayer.addTo(map);
+  activeBaseLayer.setZIndex(1);
+
+  activeMapTheme = themeId;
+
+  try {
+    localStorage.setItem('satellite-map-theme', themeId);
+  } catch (e) {
+    console.warn('Map theme storage unavailable');
+  }
+
+  document.querySelectorAll('.space-theme-btn').forEach(button => {
+    const selected = button.dataset.theme === themeId;
+    button.classList.toggle('active', selected);
+    button.setAttribute('aria-pressed', String(selected));
+  });
+
+  const status = document.getElementById('mapThemeStatus');
+  if (status) status.textContent = theme.icon + ' ' + theme.name;
+
+  console.log('Map theme changed:', theme.name);
+}
+
+function createSpaceMapControl() {
+  const control = L.control({ position: 'bottomright' });
+
+  control.onAdd = function () {
+    const container = L.DomUtil.create(
+      'div',
+      'space-map-control'
+    );
+
+    container.dir = 'rtl';
+
+    container.innerHTML = `
+      <style>
+        .space-map-control {
+          width: 244px;
+          max-width: calc(100vw - 35px);
+          color: #eaf8ff;
+          font-family: Tahoma, sans-serif;
+          direction: rtl;
+          margin: 0 8px 22px 0;
+        }
+
+        .space-map-panel {
+          background: linear-gradient(
+            145deg,
+            rgba(8,24,48,.96),
+            rgba(17,35,66,.94)
+          );
+          border: 1px solid rgba(0,218,255,.45);
+          border-radius: 19px;
+          padding: 12px;
+          box-shadow:
+            0 0 22px rgba(0,180,255,.18),
+            0 8px 30px rgba(0,0,0,.4);
+          backdrop-filter: blur(15px);
+          -webkit-backdrop-filter: blur(15px);
+        }
+
+        .space-map-header {
+          display:flex;
+          justify-content:space-between;
+          align-items:center;
+          gap:8px;
+          padding:3px 2px 11px;
+          border-bottom:1px solid rgba(255,255,255,.12);
+          margin-bottom:10px;
+        }
+
+        .space-map-title {
+          font-size:13px;
+          font-weight:bold;
+          color:#6beaff;
+        }
+
+        .space-map-status {
+          font-size:10px;
+          color:#c5d9ef;
+          margin-top:5px;
+        }
+
+        .space-map-toggle {
+          border:1px solid #08c9f4;
+          background:rgba(0,190,255,.13);
+          color:#75edff;
+          border-radius:10px;
+          padding:7px 10px;
+          cursor:pointer;
+          font-size:13px;
+        }
+
+        .space-map-grid {
+          display:grid;
+          grid-template-columns:1fr 1fr;
+          gap:8px;
+        }
+
+        .space-theme-btn {
+          position:relative;
+          overflow:hidden;
+          min-height:70px;
+          border:1px solid rgba(130,190,230,.22);
+          border-radius:13px;
+          background:rgba(255,255,255,.055);
+          color:#edf8ff;
+          padding:9px 5px;
+          cursor:pointer;
+          text-align:center;
+          transition:all .2s ease;
+          font-family:inherit;
+        }
+
+        .space-theme-btn:active {
+          transform:scale(.96);
+        }
+
+        .space-theme-btn.active {
+          border:1px solid #00e5ff;
+          background:linear-gradient(
+            145deg,
+            rgba(0,195,255,.25),
+            rgba(90,65,220,.2)
+          );
+          box-shadow:
+            0 0 12px rgba(0,220,255,.3),
+            inset 0 0 12px rgba(0,200,255,.08);
+        }
+
+        .space-theme-icon {
+          display:block;
+          font-size:23px;
+          margin-bottom:5px;
+        }
+
+        .space-theme-name {
+          display:block;
+          font-size:11px;
+          font-weight:bold;
+        }
+
+        .space-theme-check {
+          position:absolute;
+          top:4px;
+          left:6px;
+          font-size:11px;
+          color:#38f5d0;
+        }
+
+        .space-theme-btn:not(.active) .space-theme-check {
+          display:none;
+        }
+
+        .space-map-footer {
+          font-size:9px;
+          text-align:center;
+          color:#789bb9;
+          margin-top:10px;
+        }
+
+        .space-map-panel.collapsed .space-map-grid,
+        .space-map-panel.collapsed .space-map-footer {
+          display:none;
+        }
+
+        @media(max-width:480px) {
+          .space-map-control {
+            width:220px;
+          }
+          .space-theme-btn {
+            min-height:64px;
+          }
+        }
+      </style>
+
+      <div class="space-map-panel">
+
+        <div class="space-map-header">
+          <div>
+            <div class="space-map-title">
+              ✦ حالت نمایش نقشه
+            </div>
+            <div class="space-map-status" id="mapThemeStatus">
+              🗺️ استاندارد
+            </div>
+          </div>
+
+          <button class="space-map-toggle"
+                  id="spaceMapToggle"
+                  type="button"
+                  aria-label="باز و بسته کردن انتخابگر نقشه">
+            ⌃
+          </button>
+        </div>
+
+        <div class="space-map-grid">
+
+          <button class="space-theme-btn"
+                  data-theme="standard"
+                  type="button">
+            <span class="space-theme-check">✓</span>
+            <span class="space-theme-icon">🗺️</span>
+            <span class="space-theme-name">استاندارد</span>
+          </button>
+
+          <button class="space-theme-btn"
+                  data-theme="satellite"
+                  type="button">
+            <span class="space-theme-check">✓</span>
+            <span class="space-theme-icon">🛰️</span>
+            <span class="space-theme-name">ماهواره‌ای</span>
+          </button>
+
+          <button class="space-theme-btn"
+                  data-theme="dark"
+                  type="button">
+            <span class="space-theme-check">✓</span>
+            <span class="space-theme-icon">🌌</span>
+            <span class="space-theme-name">تاریک فضایی</span>
+          </button>
+
+          <button class="space-theme-btn"
+                  data-theme="topo"
+                  type="button">
+            <span class="space-theme-check">✓</span>
+            <span class="space-theme-icon">⛰️</span>
+            <span class="space-theme-name">توپوگرافی</span>
+          </button>
+
+          <button class="space-theme-btn"
+                  data-theme="light"
+                  type="button">
+            <span class="space-theme-check">✓</span>
+            <span class="space-theme-icon">☀️</span>
+            <span class="space-theme-name">روشن</span>
+          </button>
+
+          <button class="space-theme-btn"
+                  data-theme="earth"
+                  type="button">
+            <span class="space-theme-check">✓</span>
+            <span class="space-theme-icon">🌍</span>
+            <span class="space-theme-name">زمین از فضا</span>
+          </button>
+
+        </div>
+
+        <div class="space-map-footer">
+          SATELLITE EXPLORER PRO • MAP SYSTEM
+        </div>
+
+      </div>
+    `;
+
+    L.DomEvent.disableClickPropagation(container);
+    L.DomEvent.disableScrollPropagation(container);
+
+    const buttons = container.querySelectorAll('.space-theme-btn');
+
+    buttons.forEach(button => {
+      L.DomEvent.on(button, 'click', () => {
+        changeMapTheme(button.dataset.theme);
+      });
+    });
+
+    L.DomEvent.on(
+      container.querySelector('#spaceMapToggle'),
+      'click',
+      () => {
+        const panel = container.querySelector('.space-map-panel');
+        panel.classList.toggle('collapsed');
+
+        container.querySelector('#spaceMapToggle').textContent =
+          panel.classList.contains('collapsed') ? '⌄' : '⌃';
+      }
+    );
+
+    return container;
+  };
+
+  control.addTo(map);
+}
+
+function initializeMapThemes() {
+  let savedTheme = 'standard';
+
+  try {
+    const saved = localStorage.getItem('satellite-map-theme');
+    if (saved && MAP_THEMES[saved]) savedTheme = saved;
+  } catch (e) {
+    console.warn('Cannot read saved map theme');
+  }
+
+  createSpaceMapControl();
+  changeMapTheme(savedTheme);
+}
+
+initializeMapThemes();
+
+window.changeMapTheme = changeMapTheme;
+window.MAP_THEMES = MAP_THEMES;
+
 
 const satelliteLayer = L.layerGroup().addTo(map);
 const orbitLayer = L.layerGroup().addTo(map);
