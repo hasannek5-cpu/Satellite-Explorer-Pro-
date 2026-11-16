@@ -6,11 +6,14 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 
 <meta name="theme-color" content="#071426">
-<meta name="description" content="کاوشگر ماهواره غیرنظامی؛ نمایش نقشه، ردیابی ماهواره‌ها، موقعیت‌یابی GPS، تحلیل زمین و نمایش زنده هواپیماها">
+<meta name="description" content="کاوشگر ماهواره غیرنظامی؛ نمایش نقشه، ردیابی ماهواره‌ها، موقعیت‌یابی GPS، تحلیل زمین و نمایش زنده هواپیماها.">
 
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+
+<meta name="application-name" content="Satellite Explorer Pro">
+<meta name="apple-mobile-web-app-title" content="کاوشگر ماهواره">
 
 <title>Satellite Explorer Pro | کاوشگر ماهواره</title>
 
@@ -18,19 +21,25 @@
 <link rel="manifest" href="./manifest.json">
 
 <!-- App Icons -->
-  <link rel="icon" type="image/png" sizes="192x192" href="./icon-192.png">
+<link rel="icon" type="image/png" sizes="192x192" href="./icon-192.png">
+<link rel="icon" type="image/png" sizes="512x512" href="./icon-512.png">
 <link rel="apple-touch-icon" href="./icon-192.png">
-<link rel="icon" type="image/png" href="/Satellite-Explorer-Pro-/icon-192.png">
-<link rel="apple-touch-icon" href="/Satellite-Explorer-Pro-/icon-192.png">
 
-<!-- Leaflet -->
+<!-- Leaflet CSS -->
+<link rel="stylesheet"
+href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 
 <!-- Main CSS -->
 <link rel="stylesheet" href="./style.css">
 
 <style>
-[hidden]{display:none!important}
-*{box-sizing:border-box}
+[hidden]{
+  display:none!important;
+}
+
+*{
+  box-sizing:border-box;
+}
 
 :root{
   --bg:#071426;
@@ -224,21 +233,46 @@ button{
   box-shadow:0 4px 15px #0008;
 }
 
+button:focus-visible{
+  outline:2px solid #39b9f0;
+  outline-offset:3px;
+}
+
 @media(min-width:700px){
-  main{padding:12px}
-  #map{height:calc(100dvh - 130px)}
-  nav button{font-size:13px}
+  main{
+    padding:12px;
+  }
+
+  #map{
+    height:calc(100dvh - 130px);
+  }
+
+  nav button{
+    font-size:13px;
+  }
 }
 
 @media(max-width:480px){
-  header{height:53px}
-  header h2{font-size:14px}
-  .header-status{font-size:10px}
+  header{
+    height:53px;
+  }
+
+  header h2{
+    font-size:14px;
+  }
+
+  .header-status{
+    font-size:10px;
+  }
+
   #map{
     height:calc(100dvh - 122px);
     min-height:380px;
   }
-  nav button{font-size:10px}
+
+  nav button{
+    font-size:10px;
+  }
 }
 </style>
 </head>
@@ -251,124 +285,316 @@ button{
 </header>
 
 <div class="toolbar">
-  <button class="menu-toggle" onclick="toggleMenu()">
+
+  <button
+    class="menu-toggle"
+    type="button"
+    onclick="toggleMenu()"
+    aria-expanded="false"
+    aria-controls="mainNav">
+
     <span>☰ ابزارهای سامانه</span>
     <span id="menuArrow">⌄</span>
+
   </button>
 
   <nav id="mainNav">
-    <button class="active" onclick="showTab('map')">🗺 نقشه</button>
-    <button onclick="showTab('info')">🛰 ماهواره‌ها</button>
-    <button onclick="showTab('gps')">📍 GPS</button>
-    <button onclick="showTab('earth')">🌍 تحلیل زمین</button>
+
+    <button class="active" type="button"
+      onclick="showTab('map')">
+      🗺 نقشه
+    </button>
+
+    <button type="button"
+      onclick="showTab('info')">
+      🛰 ماهواره‌ها
+    </button>
+
+    <button type="button"
+      onclick="showTab('gps')">
+      📍 GPS
+    </button>
+
+    <button type="button"
+      onclick="showTab('earth')">
+      🌍 تحلیل زمین
+    </button>
+
   </nav>
 </div>
 
 <main>
 
-<section id="mapTab">
-  <div id="map"></div>
-</section>
+  <!-- MAP -->
+  <section id="mapTab">
 
-<section id="infoTab" hidden>
-  <h3>🛰 اطلاعات ماهواره</h3>
-  <div id="details">یک ماهواره انتخاب کنید.</div>
+    <div id="map"></div>
 
-  <h3>فهرست ماهواره‌ها</h3>
-  <div id="satelliteList"></div>
-</section>
+  </section>
 
-<section id="gpsTab" hidden>
-  <h3>📍 موقعیت GPS گوشی</h3>
-  <button onclick="getLocation()">دریافت موقعیت من</button>
-  <div id="location" class="sensor-result"></div>
-</section>
+  <!-- SATELLITES -->
+  <section id="infoTab" hidden>
 
-<section id="earthTab" hidden>
-  <h3>🌍 تحلیل زمین</h3>
+    <h3>🛰 اطلاعات ماهواره</h3>
 
-  <div class="sensor-panel">
-    <h4>📍 مختصات نقطه مورد بررسی</h4>
-    <div id="selectedCoordinates">
-      برای انتخاب نقطه، روی نقشه کلیک کنید.
+    <div id="details">
+      یک ماهواره انتخاب کنید.
     </div>
 
-    <h4>🌡 تحلیل حرارتی سطح زمین</h4>
-    <button onclick="loadThermalData()">دریافت داده حرارتی</button>
-    <div id="thermalResult" class="sensor-result">
-      هنوز داده حرارتی دریافت نشده است.
+    <h3>فهرست ماهواره‌ها</h3>
+
+    <div id="satelliteList"></div>
+
+  </section>
+
+  <!-- GPS -->
+  <section id="gpsTab" hidden>
+
+    <h3>📍 موقعیت GPS گوشی</h3>
+
+    <button type="button" onclick="getLocation()">
+      دریافت موقعیت من
+    </button>
+
+    <div id="location" class="sensor-result"></div>
+
+  </section>
+
+  <!-- EARTH ANALYSIS -->
+  <section id="earthTab" hidden>
+
+    <h3>🌍 تحلیل زمین</h3>
+
+    <div class="sensor-panel">
+
+      <h4>📍 مختصات نقطه مورد بررسی</h4>
+
+      <div id="selectedCoordinates">
+        برای انتخاب نقطه، روی نقشه کلیک کنید.
+      </div>
+
+      <h4>🌡 تحلیل حرارتی سطح زمین</h4>
+
+      <button type="button" onclick="loadThermalData()">
+        دریافت داده حرارتی
+      </button>
+
+      <div id="thermalResult" class="sensor-result">
+        هنوز داده حرارتی دریافت نشده است.
+      </div>
+
+      <h4>🪨 بررسی خاک و مواد معدنی</h4>
+
+      <button type="button" onclick="loadMineralData()">
+        تحلیل طیفی منطقه
+      </button>
+
+      <div id="mineralResult" class="sensor-result">
+        هنوز داده طیفی دریافت نشده است.
+      </div>
+
     </div>
 
-    <h4>🪨 بررسی خاک و مواد معدنی</h4>
-    <button onclick="loadMineralData()">تحلیل طیفی منطقه</button>
-    <div id="mineralResult" class="sensor-result">
-      هنوز داده طیفی دریافت نشده است.
-    </div>
-  </div>
+    <p>
+      توجه: نتایج حرارتی و طیفی به داده‌های ماهواره‌ای معتبر وابسته‌اند.
+      تشخیص قطعی معدن به بررسی میدانی و آزمایش نمونه نیاز دارد.
+    </p>
 
-  <p>
-    توجه: نتایج حرارتی و طیفی به داده‌های ماهواره‌ای معتبر وابسته‌اند.
-    تشخیص قطعی معدن به بررسی میدانی و آزمایش نمونه نیاز دارد.
-  </p>
-</section>
+  </section>
 
 </main>
 
-<button class="map-home" onclick="showTab('map')" title="بازگشت به نقشه">⌖</button>
+<!-- MAP HOME BUTTON -->
+<button
+  class="map-home"
+  type="button"
+  onclick="showTab('map')"
+  title="بازگشت به نقشه"
+  aria-label="بازگشت به نقشه">
 
-<!-- External Libraries -->
+  ⌖
+
+</button>
+
+<!-- EXTERNAL LIBRARIES -->
+
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
 <script src="https://cdn.jsdelivr.net/npm/satellite.js@6.0.1/dist/satellite.min.js"></script>
 
-<!-- Project Scripts -->
+<!-- PROJECT SCRIPTS -->
+
 <script src="./app.js"></script>
+
 <script src="./earth-analysis.js"></script>
 
 <script>
+
+/* ==========================================
+   SATELLITE EXPLORER PRO
+   NAVIGATION AND PWA
+========================================== */
+
+
+/* MENU */
+
 function toggleMenu(){
+
   const nav=document.getElementById('mainNav');
+
   const arrow=document.getElementById('menuArrow');
 
+  const toggle=document.querySelector('.menu-toggle');
+
   nav.classList.toggle('open');
-  arrow.textContent=nav.classList.contains('open')?'⌃':'⌄';
+
+  const opened=nav.classList.contains('open');
+
+  arrow.textContent=opened?'⌃':'⌄';
+
+  toggle.setAttribute('aria-expanded',String(opened));
+
 }
+
+
+/* TAB NAVIGATION */
 
 function showTab(tab){
 
   const tabs=['map','info','gps','earth'];
 
+  if(!tabs.includes(tab)) return;
+
   tabs.forEach(name=>{
+
     const section=document.getElementById(name+'Tab');
-    if(section) section.hidden=name!==tab;
+
+    if(section){
+
+      section.hidden=name!==tab;
+
+    }
+
   });
 
-  document.querySelectorAll('#mainNav button').forEach((button,index)=>{
-    button.classList.toggle('active',tabs[index]===tab);
-  });
+  document.querySelectorAll('#mainNav button')
+    .forEach((button,index)=>{
 
-  document.getElementById('mainNav').classList.remove('open');
+      button.classList.toggle(
+        'active',
+        tabs[index]===tab
+      );
+
+    });
+
+  document.getElementById('mainNav')
+    .classList.remove('open');
+
   document.getElementById('menuArrow').textContent='⌄';
 
+  document.querySelector('.menu-toggle')
+    .setAttribute('aria-expanded','false');
+
+
+  /* FIX LEAFLET MAP SIZE */
+
   if(tab==='map' && window.map){
+
     setTimeout(()=>{
+
       window.map.invalidateSize();
-    },200);
+
+    },250);
+
   }
+
 }
 
-/* PWA Service Worker Registration */
+
+/* ==========================================
+   PWA SERVICE WORKER
+   GITHUB PAGES COMPATIBLE
+========================================== */
+
 if('serviceWorker' in navigator){
-  window.addEventListener('load',()=>{
-    navigator.serviceWorker.register(
-      '/Satellite-Explorer-Pro-/service-worker.js',
-      {scope:'/Satellite-Explorer-Pro-/'}
-    ).then(registration=>{
-      console.log('Service Worker registered:',registration.scope);
-    }).catch(error=>{
-      console.error('Service Worker Error:',error);
-    });
+
+  window.addEventListener('load',async()=>{
+
+    try{
+
+      const registration=await navigator.serviceWorker.register(
+        './service-worker.js',
+        {
+          scope:'./'
+        }
+      );
+
+      console.log(
+        'Service Worker registered:',
+        registration.scope
+      );
+
+    }catch(error){
+
+      console.error(
+        'Service Worker Error:',
+        error
+      );
+
+    }
+
   });
+
 }
+
+
+/* ==========================================
+   PWA INSTALL PROMPT
+========================================== */
+
+let deferredInstallPrompt=null;
+
+window.addEventListener('beforeinstallprompt',event=>{
+
+  event.preventDefault();
+
+  deferredInstallPrompt=event;
+
+  console.log('PWA installation is available.');
+
+});
+
+window.addEventListener('appinstalled',()=>{
+
+  deferredInstallPrompt=null;
+
+  console.log('PWA installed successfully.');
+
+});
+
+
+/* ==========================================
+   CHECK REQUIRED LIBRARIES
+========================================== */
+
+window.addEventListener('load',()=>{
+
+  if(typeof L==='undefined'){
+
+    console.error('Leaflet library failed to load.');
+
+  }
+
+  if(typeof satellite==='undefined'){
+
+    console.error('Satellite.js library failed to load.');
+
+  }
+
+  console.log('Satellite Explorer Pro initialized.');
+
+});
+
 </script>
 
 </body>
