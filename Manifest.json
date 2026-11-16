@@ -1,35 +1,27 @@
 
 {
-  "id": "/Satellite-Explorer-Pro1/",
+  "id": "/Satellite-Explorer-Pro-/",
   "name": "Satellite Explorer Pro",
-  "short_name": "Satellite Explorer",
-  "description": "Professional satellite tracking, GPS, aircraft tracking and Earth analysis",
+  "short_name": "کاوشگر ماهواره",
+  "description": "کاوشگر ماهواره غیرنظامی؛ نمایش نقشه زمین، ردیابی ماهواره‌ها و هواپیماها، موقعیت‌یابی GPS و تحلیل اطلاعات زمین",
   "lang": "fa",
   "dir": "rtl",
-  "start_url": "/Satellite-Explorer-Pro1/",
-  "scope": "/Satellite-Explorer-Pro1/",
+  "start_url": "/Satellite-Explorer-Pro-/",
+  "scope": "/Satellite-Explorer-Pro-/",
   "display": "standalone",
-  "orientation": "any",
+  "orientation": "portrait",
   "background_color": "#071426",
   "theme_color": "#071426",
   "icons": [
-  {
-    "src": "/Satellite-Explorer-Pro1/icon-192.png",
-    "sizes": "192x192",
-    "type": "image/png",
-    "purpose": "any"
-  },
-  {
-    "src": "/Satellite-Explorer-Pro1/icon-512.png",
-    "sizes": "512x512",
-    "type": "image/png",
-    "purpose": "any"
+    {
+      "src": "/Satellite-Explorer-Pro-/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
     },
     {
-      "src": "/Satellite-Explorer-Pro1/icon-512.png",
+      "src": "/Satellite-Explorer-Pro-/icon-512.png",
       "sizes": "512x512",
-      "type": "image/png",
-      "purpose": "maskable"
+      "type": "image/png"
     }
   ]
 }
