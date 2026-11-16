@@ -6,7 +6,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 
 <meta name="theme-color" content="#071426">
-<meta name="description" content="کاوشگر ماهواره غیرنظامی؛ نمایش نقشه، ردیابی ماهواره‌ها، موقعیت‌یابی GPS، تحلیل زمین و نمایش زنده هواپیماها.">
+<meta name="description" content="کاوشگر ماهواره؛ نمایش نقشه زمین، ردیابی ماهواره‌ها، GPS، تحلیل زمین و پروازهای زنده.">
 
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -17,272 +17,497 @@
 
 <title>Satellite Explorer Pro | کاوشگر ماهواره</title>
 
-<!-- PWA Manifest -->
 <link rel="manifest" href="./manifest.json">
 
-<!-- App Icons -->
 <link rel="icon" type="image/png" sizes="192x192" href="./icon-192.png">
 <link rel="icon" type="image/png" sizes="512x512" href="./icon-512.png">
 <link rel="apple-touch-icon" href="./icon-192.png">
 
-<!-- Leaflet CSS -->
-<link rel="stylesheet"
-href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-
-<!-- Main CSS -->
-<link rel="stylesheet" href="./style.css">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 
 <style>
-[hidden]{
-  display:none!important;
+
+/* =====================================================
+   SATELLITE EXPLORER PRO
+   COMPACT SPACE UI
+   MOBILE + DESKTOP
+   ===================================================== */
+
+:root {
+  --bg: #061426;
+  --bg2: #0a1d33;
+  --panel: #0d2540;
+  --panel2: #102d4c;
+  --border: #20476b;
+  --accent: #08b9ed;
+  --accent2: #48d9ff;
+  --text: #eaf4ff;
+  --muted: #91abc7;
+  --success: #19dc78;
+  --radius: 13px;
 }
 
-*{
-  box-sizing:border-box;
+* {
+  box-sizing: border-box;
 }
 
-:root{
-  --bg:#071426;
-  --panel:#10243a;
-  --border:#233e5b;
-  --accent:#079bd0;
-  --text:#eaf4ff;
+[hidden] {
+  display: none !important;
 }
 
-html,body{
-  margin:0;
-  min-height:100%;
-  background:var(--bg);
-  color:var(--text);
-  font-family:Tahoma,Arial,sans-serif;
+html,
+body {
+  width: 100%;
+  min-height: 100%;
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: Tahoma, Arial, sans-serif;
 }
 
-body{
-  padding-bottom:env(safe-area-inset-bottom);
+body {
+  overflow-x: hidden;
+  padding-bottom: env(safe-area-inset-bottom);
 }
 
-header{
-  height:58px;
-  padding:0 14px;
-  display:flex;
-  align-items:center;
-  justify-content:space-between;
-  background:#0b1c30;
-  border-bottom:1px solid var(--border);
+/* HEADER */
+
+header {
+  height: 57px;
+  padding: 0 13px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: linear-gradient(110deg,#07172b,#102c49);
+  border-bottom: 1px solid var(--border);
+  box-shadow: 0 3px 15px #0005;
 }
 
-header h2{
-  font-size:16px;
-  margin:0;
+header h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--accent2);
 }
 
-.header-status{
-  font-size:11px;
-  color:#71d6a2;
+.header-status {
+  font-size: 11px;
+  color: var(--success);
+  white-space: nowrap;
 }
 
-.toolbar{
-  position:relative;
-  z-index:1100;
-  background:#0b1c30;
-  padding:8px 12px;
-  border-bottom:1px solid var(--border);
+/* TOOLBAR */
+
+.toolbar {
+  position: relative;
+  z-index: 1100;
+  padding: 6px 10px;
+  background: #091b30;
+  border-bottom: 1px solid var(--border);
 }
 
-.menu-toggle{
-  width:100%;
-  min-height:42px;
-  display:flex;
-  align-items:center;
-  justify-content:space-between;
-  padding:0 13px;
-  border:1px solid var(--border);
-  border-radius:10px;
-  background:#132b45;
-  color:white;
-  font-size:13px;
+.menu-toggle {
+  width: 100%;
+  height: 36px;
+  min-height: 36px;
+  padding: 0 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--panel);
+  color: var(--text);
+  font-size: 12px;
 }
 
-nav{
-  display:none;
-  grid-template-columns:repeat(4,1fr);
-  gap:7px;
-  padding-top:9px;
+/* NAVIGATION */
+
+nav {
+  display: none;
+  grid-template-columns: repeat(4,minmax(0,1fr));
+  gap: 6px;
+  padding: 8px 0 2px;
 }
 
-nav.open{
-  display:grid;
+nav.open {
+  display: grid;
 }
 
-nav button{
-  min-height:43px;
-  padding:7px 3px;
-  border:1px solid var(--border);
-  border-radius:9px;
-  background:#10243a;
-  color:white;
-  font-size:11px;
+nav button {
+  min-width: 0;
+  min-height: 36px;
+  padding: 6px 3px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--text);
+  font-size: 11px;
+  white-space: nowrap;
 }
 
-nav button.active{
-  background:#087eae;
-  border-color:#32bafa;
+nav button.active {
+  background: #07527a;
+  border-color: var(--accent);
+  color: #fff;
+  box-shadow: 0 0 9px #08b9ed35;
 }
 
-main{
-  padding:8px;
+/* BUTTONS */
+
+button {
+  cursor: pointer;
+  font-family: inherit;
+  transition: background .2s,border-color .2s;
+  -webkit-tap-highlight-color: transparent;
 }
 
-section{
-  padding:0;
+button:active {
+  background: #086b9b;
 }
 
-#mapTab{
-  position:relative;
+button:focus-visible {
+  outline: 2px solid var(--accent2);
+  outline-offset: 2px;
 }
 
-#map{
-  width:100%;
-  height:calc(100dvh - 132px);
-  min-height:400px;
-  border-radius:13px;
-  overflow:hidden;
-  border:1px solid #294764;
-  background:#10243a;
+/* MAIN */
+
+main {
+  width: 100%;
+  padding: 5px;
 }
 
-#infoTab,#gpsTab,#earthTab{
-  padding:12px;
-  background:#0b1c30;
-  border:1px solid var(--border);
-  border-radius:13px;
-  margin-top:8px;
+section {
+  padding: 0;
 }
 
-h3{
-  font-size:15px;
-  margin:8px 0 14px;
+/* MAP */
+
+#mapTab {
+  position: relative;
+  width: 100%;
+  margin: 0;
+  padding: 0;
 }
 
-h4{
-  font-size:13px;
+#map {
+  width: 100%;
+  height: calc(100dvh - 108px);
+  min-height: 360px;
+  border: 1px solid #1e476a;
+  border-radius: 11px;
+  overflow: hidden;
+  background: #10243a;
+  box-shadow: 0 3px 16px #0005;
 }
 
-#details,#satelliteList,#location{
-  background:#10243a;
-  border:1px solid var(--border);
-  border-radius:10px;
-  padding:12px;
-  margin:10px 0;
-  line-height:2;
-  overflow-wrap:anywhere;
+/* LEAFLET */
+
+.leaflet-control-zoom {
+  border: 1px solid var(--border) !important;
+  border-radius: 10px !important;
+  overflow: hidden;
+  box-shadow: 0 3px 12px #0007 !important;
 }
 
-button{
-  cursor:pointer;
-  font-family:inherit;
+.leaflet-control-zoom a {
+  width: 32px !important;
+  height: 32px !important;
+  line-height: 32px !important;
+  background: #0b2541 !important;
+  color: white !important;
+  border-bottom: 1px solid var(--border) !important;
 }
+
+.leaflet-control-attribution {
+  background: #071426d9 !important;
+  color: #c6d9ed !important;
+  font-size: 9px !important;
+}
+
+.leaflet-control-attribution a {
+  color: var(--accent2) !important;
+}
+
+/* MAP HOME */
+
+.map-home {
+  position: fixed;
+  z-index: 1200;
+  left: 13px;
+  bottom: calc(17px + env(safe-area-inset-bottom));
+  width: 42px;
+  height: 42px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--accent);
+  border-radius: 50%;
+  background: #092d4c;
+  color: white;
+  font-size: 23px;
+  box-shadow: 0 3px 14px #0009;
+}
+
+/* INFORMATION PANELS */
+
+#infoTab,
+#gpsTab,
+#earthTab {
+  margin: 5px 0;
+  padding: 11px;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+h3 {
+  margin: 7px 0 11px;
+  font-size: 14px;
+  color: var(--accent2);
+}
+
+h4 {
+  margin: 10px 0 7px;
+  font-size: 12px;
+  color: #c9e7ff;
+}
+
+#details,
+#satelliteList,
+#location {
+  margin: 8px 0;
+  padding: 10px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  font-size: 12px;
+  line-height: 1.9;
+  overflow-wrap: anywhere;
+}
+
+/* GPS */
 
 #gpsTab button,
-.sensor-panel button{
-  background:#087eae;
-  border:0;
-  color:white;
-  padding:11px 15px;
-  border-radius:9px;
-  margin:5px 0;
+.sensor-panel button {
+  min-height: 35px;
+  padding: 8px 12px;
+  margin: 4px 0;
+  border: 1px solid #087eae;
+  border-radius: 8px;
+  background: #075681;
+  color: white;
+  font-size: 12px;
 }
 
-.sensor-panel{
-  background:#10243a;
-  border:1px solid var(--border);
-  padding:13px;
-  border-radius:12px;
-  margin:10px 0;
+.sensor-panel {
+  margin: 8px 0;
+  padding: 10px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
 }
 
-.sensor-result{
-  line-height:2;
-  overflow-wrap:anywhere;
+.sensor-result {
+  font-size: 12px;
+  line-height: 1.9;
+  overflow-wrap: anywhere;
 }
 
-#selectedCoordinates{
-  font-size:12px;
-  color:#8bdcff;
-  line-height:2;
+#selectedCoordinates {
+  color: var(--accent2);
+  font-size: 11px;
+  line-height: 1.9;
 }
 
-#earthTab>p{
-  font-size:11px;
-  color:#9eb2c9;
-  line-height:2;
+#earthTab > p {
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.9;
 }
 
-.map-home{
-  position:fixed;
-  z-index:1200;
-  left:17px;
-  bottom:20px;
-  width:46px;
-  height:46px;
-  border-radius:50%;
-  border:1px solid #39b9f0;
-  background:#087eae;
-  color:white;
-  font-size:20px;
-  box-shadow:0 4px 15px #0008;
+/* COMPACT MAP PANELS */
+
+#mapTab .flight-panel,
+#mapTab .aircraft-panel,
+#mapTab .map-panel,
+#mapTab .layer-panel,
+#mapTab .map-layers,
+#mapTab .control-panel {
+  max-width: calc(100% - 16px);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: #081d34ed;
+  color: var(--text);
+  box-shadow: 0 4px 15px #0006;
+  backdrop-filter: blur(9px);
 }
 
-button:focus-visible{
-  outline:2px solid #39b9f0;
-  outline-offset:3px;
+#mapTab .flight-panel button,
+#mapTab .aircraft-panel button,
+#mapTab .map-panel button,
+#mapTab .layer-panel button,
+#mapTab .map-layers button {
+  min-height: 30px;
+  padding: 6px 9px;
+  border-radius: 8px;
+  font-size: 11px;
 }
 
-@media(min-width:700px){
-  main{
-    padding:12px;
+/* SCROLLBAR */
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #235274 #071426;
+}
+
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+::-webkit-scrollbar-track {
+  background: #071426;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #235274;
+  border-radius: 10px;
+}
+
+/* MOBILE */
+
+@media(max-width:480px) {
+
+  header {
+    height: 51px;
+    padding: 0 10px;
   }
 
-  #map{
-    height:calc(100dvh - 130px);
+  header h2 {
+    font-size: 14px;
   }
 
-  nav button{
-    font-size:13px;
+  .header-status {
+    font-size: 10px;
+  }
+
+  .toolbar {
+    padding: 5px 8px;
+  }
+
+  .menu-toggle {
+    height: 34px;
+    min-height: 34px;
+    font-size: 11px;
+  }
+
+  nav {
+    gap: 5px;
+    padding-top: 6px;
+  }
+
+  nav button {
+    min-height: 34px;
+    font-size: 10px;
+  }
+
+  main {
+    padding: 3px;
+  }
+
+  #map {
+    height: calc(100dvh - 98px);
+    min-height: 340px;
+    border-radius: 9px;
+  }
+
+  #infoTab,
+  #gpsTab,
+  #earthTab {
+    padding: 9px;
+  }
+
+  h3 {
+    font-size: 13px;
+  }
+
+  .map-home {
+    width: 39px;
+    height: 39px;
+    left: 10px;
   }
 }
 
-@media(max-width:480px){
-  header{
-    height:53px;
+/* TABLET & DESKTOP */
+
+@media(min-width:700px) {
+
+  header {
+    height: 62px;
+    padding: 0 22px;
   }
 
-  header h2{
-    font-size:14px;
+  header h2 {
+    font-size: 19px;
   }
 
-  .header-status{
-    font-size:10px;
+  .toolbar {
+    padding: 7px 15px;
   }
 
-  #map{
-    height:calc(100dvh - 122px);
-    min-height:380px;
+  main {
+    padding: 7px;
   }
 
-  nav button{
-    font-size:10px;
+  #map {
+    height: calc(100dvh - 111px);
+  }
+
+  nav button {
+    font-size: 12px;
   }
 }
+
+/* SMALL HEIGHT */
+
+@media(max-height:520px) {
+
+  header {
+    height: 43px;
+  }
+
+  .toolbar {
+    padding: 3px 8px;
+  }
+
+  .menu-toggle {
+    min-height: 30px;
+    height: 30px;
+  }
+
+  #map {
+    height: calc(100dvh - 85px);
+    min-height: 250px;
+  }
+}
+
 </style>
 </head>
 
 <body>
 
+<!-- HEADER -->
+
 <header>
   <h2>🛰️ کاوشگر ماهواره</h2>
   <span class="header-status">● سامانه فعال</span>
 </header>
+
+<!-- TOOLBAR -->
 
 <div class="toolbar">
 
@@ -321,18 +546,19 @@ button:focus-visible{
     </button>
 
   </nav>
+
 </div>
 
 <main>
 
   <!-- MAP -->
+
   <section id="mapTab">
-
     <div id="map"></div>
-
   </section>
 
   <!-- SATELLITES -->
+
   <section id="infoTab" hidden>
 
     <h3>🛰 اطلاعات ماهواره</h3>
@@ -348,6 +574,7 @@ button:focus-visible{
   </section>
 
   <!-- GPS -->
+
   <section id="gpsTab" hidden>
 
     <h3>📍 موقعیت GPS گوشی</h3>
@@ -361,6 +588,7 @@ button:focus-visible{
   </section>
 
   <!-- EARTH ANALYSIS -->
+
   <section id="earthTab" hidden>
 
     <h3>🌍 تحلیل زمین</h3>
@@ -405,6 +633,7 @@ button:focus-visible{
 </main>
 
 <!-- MAP HOME BUTTON -->
+
 <button
   class="map-home"
   type="button"
@@ -422,67 +651,58 @@ button:focus-visible{
 
 <script src="https://cdn.jsdelivr.net/npm/satellite.js@6.0.1/dist/satellite.min.js"></script>
 
-<!-- PROJECT SCRIPTS -->
+<!-- PROJECT JAVASCRIPT -->
 
 <script src="./app.js"></script>
 
 <script src="./earth-analysis.js"></script>
 
+<!-- NAVIGATION AND PWA -->
+
 <script>
-
-/* ==========================================
-   SATELLITE EXPLORER PRO
-   NAVIGATION AND PWA
-========================================== */
-
 
 /* MENU */
 
 function toggleMenu(){
 
-  const nav=document.getElementById('mainNav');
-
-  const arrow=document.getElementById('menuArrow');
-
-  const toggle=document.querySelector('.menu-toggle');
+  const nav = document.getElementById('mainNav');
+  const arrow = document.getElementById('menuArrow');
+  const toggle = document.querySelector('.menu-toggle');
 
   nav.classList.toggle('open');
 
-  const opened=nav.classList.contains('open');
+  const opened = nav.classList.contains('open');
 
-  arrow.textContent=opened?'⌃':'⌄';
+  arrow.textContent = opened ? '⌃' : '⌄';
 
   toggle.setAttribute('aria-expanded',String(opened));
 
 }
 
-
 /* TAB NAVIGATION */
 
 function showTab(tab){
 
-  const tabs=['map','info','gps','earth'];
+  const tabs = ['map','info','gps','earth'];
 
   if(!tabs.includes(tab)) return;
 
-  tabs.forEach(name=>{
+  tabs.forEach(name => {
 
-    const section=document.getElementById(name+'Tab');
+    const section = document.getElementById(name + 'Tab');
 
     if(section){
-
-      section.hidden=name!==tab;
-
+      section.hidden = name !== tab;
     }
 
   });
 
   document.querySelectorAll('#mainNav button')
-    .forEach((button,index)=>{
+    .forEach((button,index) => {
 
       button.classList.toggle(
         'active',
-        tabs[index]===tab
+        tabs[index] === tab
       );
 
     });
@@ -490,17 +710,16 @@ function showTab(tab){
   document.getElementById('mainNav')
     .classList.remove('open');
 
-  document.getElementById('menuArrow').textContent='⌄';
+  document.getElementById('menuArrow').textContent = '⌄';
 
   document.querySelector('.menu-toggle')
     .setAttribute('aria-expanded','false');
 
+  /* LEAFLET MAP SIZE */
 
-  /* FIX LEAFLET MAP SIZE */
+  if(tab === 'map' && window.map){
 
-  if(tab==='map' && window.map){
-
-    setTimeout(()=>{
+    setTimeout(() => {
 
       window.map.invalidateSize();
 
@@ -510,11 +729,7 @@ function showTab(tab){
 
 }
 
-
-/* ==========================================
-   PWA SERVICE WORKER
-   GITHUB PAGES COMPATIBLE
-========================================== */
+/* SERVICE WORKER */
 
 if('serviceWorker' in navigator){
 
@@ -522,11 +737,9 @@ if('serviceWorker' in navigator){
 
     try{
 
-      const registration=await navigator.serviceWorker.register(
+      const registration = await navigator.serviceWorker.register(
         './service-worker.js',
-        {
-          scope:'./'
-        }
+        {scope:'./'}
       );
 
       console.log(
@@ -547,18 +760,15 @@ if('serviceWorker' in navigator){
 
 }
 
+/* PWA INSTALL */
 
-/* ==========================================
-   PWA INSTALL PROMPT
-========================================== */
-
-let deferredInstallPrompt=null;
+let deferredInstallPrompt = null;
 
 window.addEventListener('beforeinstallprompt',event=>{
 
   event.preventDefault();
 
-  deferredInstallPrompt=event;
+  deferredInstallPrompt = event;
 
   console.log('PWA installation is available.');
 
@@ -566,29 +776,22 @@ window.addEventListener('beforeinstallprompt',event=>{
 
 window.addEventListener('appinstalled',()=>{
 
-  deferredInstallPrompt=null;
+  deferredInstallPrompt = null;
 
   console.log('PWA installed successfully.');
 
 });
 
-
-/* ==========================================
-   CHECK REQUIRED LIBRARIES
-========================================== */
+/* CHECK LIBRARIES */
 
 window.addEventListener('load',()=>{
 
-  if(typeof L==='undefined'){
-
+  if(typeof L === 'undefined'){
     console.error('Leaflet library failed to load.');
-
   }
 
-  if(typeof satellite==='undefined'){
-
+  if(typeof satellite === 'undefined'){
     console.error('Satellite.js library failed to load.');
-
   }
 
   console.log('Satellite Explorer Pro initialized.');
