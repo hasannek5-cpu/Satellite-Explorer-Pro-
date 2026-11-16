@@ -6,20 +6,25 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 
 <meta name="theme-color" content="#071426">
-<meta name="description" content="کاوشگر ماهواره غیرنظامی؛ نمایش نقشه، ردیابی ماهواره‌ها، موقعیت‌یابی GPS و تحلیل زمین">
+<meta name="description" content="کاوشگر ماهواره غیرنظامی؛ نمایش نقشه، ردیابی ماهواره‌ها، موقعیت‌یابی GPS، تحلیل زمین و نمایش زنده هواپیماها">
 
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 
-<title>کاوشگر ماهواره</title>
+<title>Satellite Explorer Pro | کاوشگر ماهواره</title>
 
-<link rel="manifest" href="/Satellite-Explorer-Pro/manifest.json">
-<link rel="icon" type="image/png" href="/Satellite-Explorer-Pro/icon-192.png">
-<link rel="apple-touch-icon" href="/Satellite-Explorer-Pro/icon-192.png">
-<link rel="manifest"
-      href="/Satellite-Explorer-Pro-/manifest.json">
+<!-- PWA Manifest -->
+<link rel="manifest" href="/Satellite-Explorer-Pro-/manifest.json">
+
+<!-- App Icons -->
+<link rel="icon" type="image/png" href="/Satellite-Explorer-Pro-/icon-192.png">
+<link rel="apple-touch-icon" href="/Satellite-Explorer-Pro-/icon-192.png">
+
+<!-- Leaflet -->
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+
+<!-- Main CSS -->
 <link rel="stylesheet" href="./style.css">
 
 <style>
@@ -46,7 +51,6 @@ body{
   padding-bottom:env(safe-area-inset-bottom);
 }
 
-/* سربرگ کوچک */
 header{
   height:58px;
   padding:0 14px;
@@ -67,7 +71,6 @@ header h2{
   color:#71d6a2;
 }
 
-/* منوی جمع شونده */
 .toolbar{
   position:relative;
   z-index:1100;
@@ -116,7 +119,6 @@ nav button.active{
   border-color:#32bafa;
 }
 
-/* فضای اصلی */
 main{
   padding:8px;
 }
@@ -125,7 +127,6 @@ section{
   padding:0;
 }
 
-/* نقشه بزرگ */
 #mapTab{
   position:relative;
 }
@@ -140,7 +141,6 @@ section{
   background:#10243a;
 }
 
-/* پنل اطلاعات */
 #infoTab,#gpsTab,#earthTab{
   padding:12px;
   background:#0b1c30;
@@ -208,7 +208,6 @@ button{
   line-height:2;
 }
 
-/* دکمه شناور برگشت به نقشه */
 .map-home{
   position:fixed;
   z-index:1200;
@@ -316,9 +315,11 @@ button{
 
 <button class="map-home" onclick="showTab('map')" title="بازگشت به نقشه">⌖</button>
 
+<!-- External Libraries -->
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/satellite.js@6.0.1/dist/satellite.min.js"></script>
 
+<!-- Project Scripts -->
 <script src="./app.js"></script>
 <script src="./earth-analysis.js"></script>
 
@@ -354,26 +355,20 @@ function showTab(tab){
   }
 }
 
+/* PWA Service Worker Registration */
 if('serviceWorker' in navigator){
   window.addEventListener('load',()=>{
     navigator.serviceWorker.register(
-      '/Satellite-Explorer-Pro1/service-worker.js'
-    ).catch(error=>{
+      '/Satellite-Explorer-Pro-/service-worker.js',
+      {scope:'/Satellite-Explorer-Pro-/'}
+    ).then(registration=>{
+      console.log('Service Worker registered:',registration.scope);
+    }).catch(error=>{
       console.error('Service Worker Error:',error);
     });
   });
 }
 </script>
-  
-if ("serviceWorker" in navigator) {
-  window.addEventListener("load", () => {
-    navigator.serviceWorker.register(
-      "/Satellite-Explorer-Pro-/service-worker.js",
-      { scope: "/Satellite-Explorer-Pro-/" }
-    );
-  });
-}
-  </script>
-  
+
 </body>
 </html>
