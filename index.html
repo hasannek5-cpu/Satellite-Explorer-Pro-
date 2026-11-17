@@ -33,52 +33,149 @@ font-family:Tahoma,Arial,sans-serif;
 }
 body{display:flex;flex-direction:column}
 button{font-family:inherit;cursor:pointer}
+
+/* HEADER */
 header{
-flex:none;height:57px;padding:5px 10px;
-text-align:center;background:linear-gradient(120deg,#102b48,#071426);
+height:55px;flex:none;
+padding:5px 12px;
+display:flex;align-items:center;justify-content:space-between;
+background:linear-gradient(120deg,#102b48,#071426);
 border-bottom:1px solid var(--border);
-z-index:1100;
+z-index:1200;
 }
-header h2{font-size:17px;margin:2px 0;color:white}
+header h2{
+font-size:15px;margin:0;color:white;
+}
 .status{
-display:inline-flex;align-items:center;gap:6px;
-margin-top:3px;color:#78f3b3;font-size:10px;
+display:flex;align-items:center;gap:6px;
+color:#78f3b3;font-size:10px;
 }
 .status-dot{
 width:7px;height:7px;border-radius:50%;
 background:#16c784;box-shadow:0 0 9px #16c784;
 }
-.toolbar{
-flex:none;height:38px;padding:4px 10px;
-display:flex;justify-content:space-between;align-items:center;
-gap:8px;background:#0a192b;
-border-bottom:1px solid var(--border);z-index:1100;
-}
-.toolbar-title{font-size:11px;color:var(--muted)}
-.online{font-size:10px;color:#16c784}
+
+/* THREE DOT MENU */
 .menu-button{
-border:1px solid var(--border);border-radius:8px;
-background:var(--panel2);color:white;padding:4px 12px;font-size:16px;
+width:37px;height:35px;
+display:flex;align-items:center;justify-content:center;
+border:1px solid #31516e;border-radius:9px;
+background:#132c46;color:white;
+font-size:23px;line-height:1;
 }
-main{flex:1;min-height:0;position:relative;overflow:hidden}
+.menu-button:active{background:#075b91}
+
+.status-area{
+display:flex;align-items:center;gap:9px;
+}
+
+/* DROPDOWN MENU */
+#quickMenu{
+position:absolute;
+top:48px;right:9px;
+width:min(285px,calc(100vw - 18px));
+max-height:75vh;
+overflow-y:auto;
+z-index:2000;
+padding:9px;
+background:rgba(7,24,42,.98);
+border:1px solid #31516e;
+border-radius:13px;
+box-shadow:0 8px 28px #000c;
+backdrop-filter:blur(12px);
+display:none;
+}
+#quickMenu.open{display:block}
+
+.menu-section-title{
+font-size:10px;color:#00d5ff;
+padding:8px 5px 5px;
+border-bottom:1px solid #254663;
+margin-bottom:7px;
+}
+#mainNav{
+display:grid;
+grid-template-columns:repeat(2,1fr);
+gap:6px;
+}
+#mainNav button,
+.menu-action{
+padding:11px 6px;
+border:1px solid #294967;
+border-radius:8px;
+background:#102943;
+color:#dcecff;
+font-size:11px;
+}
+#mainNav button.active{
+background:#075b91;
+border-color:#00d5ff;
+color:white;
+}
+.menu-grid{
+display:grid;
+grid-template-columns:repeat(2,1fr);
+gap:6px;
+}
+.menu-action:active{background:#075b91}
+
+#themeBody{
+display:grid;
+grid-template-columns:repeat(2,1fr);
+gap:6px;
+}
+.theme-option{
+min-height:38px;
+padding:8px 4px;
+border-radius:8px;
+background:#142e49;
+color:#c7d9ea;
+border:1px solid #294967;
+font-size:10px;
+}
+.theme-option.selected{
+color:white;border-color:var(--cyan);
+background:#075b91;
+}
+.theme-option .check{display:none;color:#75f5b5}
+.theme-option.selected .check{display:inline}
+
+.menu-close{
+width:100%;margin-top:9px;
+padding:9px;border:1px solid #31516e;
+border-radius:8px;background:#172d43;
+color:white;font-size:11px;
+}
+
+/* MAIN */
+main{
+flex:1;min-height:0;
+position:relative;overflow:hidden;
+}
 .tab-content{
-display:none;width:100%;height:100%;padding:12px;overflow:auto;
+display:none;width:100%;height:100%;
+padding:12px;overflow:auto;
 }
 .tab-content.active{display:block}
 #mapTab{padding:0;overflow:hidden;position:relative}
-#map{width:100%;height:100%;min-height:250px;background:#071426;z-index:1}
+#map{
+width:100%;height:100%;
+min-height:250px;background:#071426;
+z-index:1;
+}
 
-/* Panels */
+/* PANELS */
 .panel{
 background:linear-gradient(145deg,#102943,#091a2d);
-border:1px solid var(--border);border-radius:14px;
-padding:15px;margin-bottom:12px;box-shadow:var(--shadow);
+border:1px solid var(--border);
+border-radius:14px;padding:15px;
+margin-bottom:12px;box-shadow:var(--shadow);
 }
 .panel h3{margin:0 0 12px;font-size:16px;color:var(--cyan)}
 .panel p{font-size:13px;color:var(--muted);line-height:1.9}
 .action-button{
-width:100%;padding:12px;margin:5px 0;color:white;
-background:linear-gradient(135deg,#087de0,#0756a4);
+width:100%;padding:12px;margin:5px 0;
+color:white;background:linear-gradient(135deg,#087de0,#0756a4);
 border:1px solid #168cff;border-radius:10px;font-size:13px;
 }
 .action-button.green{
@@ -92,174 +189,73 @@ border-color:#e5a13b;
 .result{
 margin-top:10px;padding:12px;background:#081727;
 border:1px solid var(--border);border-radius:10px;
-color:var(--text);font-size:13px;line-height:2;overflow-wrap:anywhere;
+color:var(--text);font-size:13px;
+line-height:2;overflow-wrap:anywhere;
 }
 
-/* Leaflet */
-.leaflet-container{background:#071426;font-family:Tahoma,Arial,sans-serif}
+/* LEAFLET */
+.leaflet-container{
+background:#071426;
+font-family:Tahoma,Arial,sans-serif;
+}
 .leaflet-control-zoom a{
-background:#102943!important;color:white!important;
+background:#102943!important;
+color:white!important;
 border-color:#294967!important;
 }
 .leaflet-control-attribution{
-background:#071426dd!important;color:#b8cce0!important;
-font-size:9px!important;
+background:#071426dd!important;
+color:#b8cce0!important;font-size:9px!important;
 }
 .leaflet-control-attribution a{color:var(--cyan)!important}
 .leaflet-popup-content-wrapper,.leaflet-popup-tip{
 background:#102943;color:white;
 }
-.leaflet-popup-content{font-family:Tahoma,Arial,sans-serif;line-height:1.9}
+.leaflet-popup-content{
+font-family:Tahoma,Arial,sans-serif;
+line-height:1.9;
+}
 
-/* Keep zoom buttons away from drawers */
+/* ZOOM CONTROLS */
 .leaflet-top.leaflet-left{
-top:50%;transform:translateY(-50%);
+top:8px;left:8px;
 z-index:700!important;
+transform:none;
 }
 .leaflet-top.leaflet-right,
 .leaflet-bottom.leaflet-right{z-index:700!important}
 .leaflet-bottom.leaflet-left{
-bottom:78px;z-index:700!important;
+bottom:5px;z-index:700!important;
 }
 
-/* Aircraft */
+/* AIRCRAFT MARKERS */
 .aircraft-control{
-min-width:125px!important;max-width:145px!important;
-padding:7px!important;color:white!important;
-background:#102d49!important;
-border:1px solid #00c8ee!important;
-border-radius:10px!important;
-box-shadow:0 5px 15px #0009!important;
-font-family:Tahoma,Arial,sans-serif!important;
-font-size:10px!important;line-height:1.8!important;
+display:none!important;
 }
-.aircraft-control b{
-display:block;color:#00dcff;font-size:12px;
-padding-bottom:4px;border-bottom:1px solid #31516c;
-margin-bottom:5px;
-}
-#aircraftStatus{color:#a8c5dc;font-size:10px;overflow-wrap:anywhere}
-#aircraftCount{margin-top:4px;color:#77f2b2;font-size:10px}
-#aircraftRefresh,#aircraftClear{
-width:100%;padding:7px!important;margin-top:5px!important;
-border:1px solid #168cff!important;border-radius:7px!important;
-color:white!important;background:#075da9!important;font-size:10px!important;
-}
-#aircraftClear{background:#493047!important;border-color:#a44c75!important}
-.satellite-marker,.aircraft-marker{background:transparent!important;border:0!important}
-
-/* Two map drawers only */
-.map-drawer{
-position:absolute;z-index:900;
-left:9px;right:9px;max-width:600px;
-margin-inline:auto;overflow:hidden;
-background:rgba(6,20,36,.97);
-border:1px solid #31516e;border-radius:12px;
-box-shadow:0 5px 20px #000a;
-backdrop-filter:blur(10px);direction:rtl;
-}
-.top-drawer{top:7px}
-.bottom-drawer{bottom:7px}
-.drawer-handle{
-width:100%;min-height:39px;
-display:flex;align-items:center;justify-content:space-between;
-gap:10px;padding:8px 12px;border:0;color:#eaf4ff;
-background:linear-gradient(120deg,#123756,#0b2239);
-font-size:11px;font-weight:bold;text-align:right;
-}
-.drawer-handle span:last-child{font-size:17px;color:var(--cyan)}
-.drawer-body{
-display:block;max-height:42vh;overflow-y:auto;padding:6px;
-}
-.map-drawer.is-closed .drawer-body{display:none}
-
-/* Navigation */
-#mainNav{
-display:grid;grid-template-columns:repeat(4,minmax(0,1fr));
-gap:5px;padding:4px;
-}
-#mainNav button{
-min-width:0;padding:9px 3px;
-border:1px solid var(--border);border-radius:8px;
-background:#10243b;color:#c9d9e9;font-size:10px;
-white-space:nowrap;
-}
-#mainNav button.active{
-background:linear-gradient(135deg,#087de0,#0756a4);
-border-color:#36aaff;color:white;
+.satellite-marker,.aircraft-marker{
+background:transparent!important;border:0!important;
 }
 
-/* Map theme */
-#mapThemePanel{
-position:relative;width:100%;margin:5px 0 0;
-background:#07182a;border:1px solid #31516e;
-border-radius:9px;overflow:hidden;direction:rtl;
-}
-#themeHeader{
-width:100%;min-height:38px;padding:8px;
-display:flex;justify-content:space-between;align-items:center;
-color:var(--cyan);background:#102b46;border:0;
-font-size:11px;font-weight:bold;text-align:right;
-}
-#themeArrow{font-size:16px;color:white}
-#themeBody{
-display:grid;grid-template-columns:repeat(3,1fr);
-gap:5px;padding:7px;max-height:150px;overflow-y:auto;
-}
-#themeBody.collapsed{display:none}
-.theme-option{
-min-height:40px;padding:7px 3px;border-radius:8px;
-background:#142e49;color:#c7d9ea;
-border:1px solid #294967;font-size:10px;text-align:center;
-}
-.theme-option.selected{
-color:white;border-color:var(--cyan);background:#075b91;
-}
-.theme-option .check{display:none;color:#75f5b5;margin-right:3px}
-.theme-option.selected .check{display:inline}
-
-/* Bottom toolbar */
-.bottom-tools{
-display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;
-}
-.bottom-tools button{
-min-width:0;padding:10px 3px;color:#eaf4ff;
-background:#123653;border:1px solid #2d5877;
-border-radius:8px;font:10px Tahoma,Arial,sans-serif;
-}
-.bottom-tools button:active{background:#075b91}
+/* RESPONSIVE */
 .hidden{display:none!important}
 
 @media(max-width:600px){
-header{height:55px;padding:5px}
-header h2{font-size:16px}
-.toolbar-title{font-size:9px}
+header{height:53px;padding:5px 9px}
+header h2{font-size:14px}
 .tab-content{padding:9px}
 #mapTab{padding:0}
 .panel{padding:12px}
-.map-drawer{left:6px;right:6px}
-.drawer-handle{min-height:37px;padding:7px 10px;font-size:10px}
-.drawer-body{max-height:39vh;padding:5px}
-#mainNav{gap:4px;padding:3px}
-#mainNav button{font-size:9px;padding:9px 2px}
-#themeBody{max-height:135px;gap:4px;padding:6px}
-.theme-option{min-height:39px;font-size:9px}
-.bottom-tools{gap:4px}
-.bottom-tools button{font-size:9px;padding:10px 2px}
-.aircraft-control{min-width:115px!important;max-width:130px!important}
-.leaflet-bottom.leaflet-left{bottom:72px}
+#quickMenu{top:47px;right:7px}
 }
+
 @media(max-width:360px){
-#mainNav button{font-size:8px}
-.bottom-tools button{font-size:8px}
+header h2{font-size:13px}
+.menu-button{width:34px;height:33px}
 }
+
 @media(max-height:500px) and (orientation:landscape){
-header{height:43px;padding:3px}
-header h2{font-size:14px}
-.status{margin-top:1px}
-.toolbar{height:31px}
-.drawer-body{max-height:32vh}
-#themeBody{max-height:95px}
+header{height:42px}
+#quickMenu{top:39px;max-height:80vh}
 }
 </style>
 </head>
@@ -268,28 +264,24 @@ header h2{font-size:14px}
 
 <header>
 <h2>🛰️ کاوشگر ماهواره</h2>
+
+<div class="status-area">
 <div class="status">
 <span class="status-dot"></span>
 سامانه فعال
 </div>
+
+<button class="menu-button" id="menuToggle"
+aria-label="منوی ابزارها"
+aria-expanded="false"
+type="button">⋮</button>
+</div>
 </header>
 
-<div class="toolbar">
-<button class="menu-button" id="menuToggle" aria-label="باز کردن منو">☰</button>
-<span class="toolbar-title">سامانه ردیابی و تحلیل اطلاعات زمین</span>
-<span class="online">● آنلاین</span>
-</div>
+<!-- ONE COMPACT MENU -->
+<div id="quickMenu">
 
-<main>
-
-<!-- TOP DRAWER -->
-<section id="topDrawer" class="map-drawer top-drawer is-closed">
-<button id="topDrawerToggle" class="drawer-handle" type="button" aria-expanded="false">
-<span>☰ منو و لایه‌های نقشه</span>
-<span id="topDrawerArrow">⌄</span>
-</button>
-
-<div id="topDrawerBody" class="drawer-body">
+<div class="menu-section-title">بخش‌های سامانه</div>
 
 <nav id="mainNav">
 <button class="active" data-tab="map" onclick="showTab('map')">🌍 نقشه</button>
@@ -298,13 +290,9 @@ header h2{font-size:14px}
 <button data-tab="earth" onclick="showTab('earth')">🌐 تحلیل زمین</button>
 </nav>
 
-<div id="mapThemePanel">
-<button id="themeHeader" type="button">
-<span>✦ حالت نمایش نقشه</span>
-<span id="themeArrow">⌄</span>
-</button>
+<div class="menu-section-title">حالت نمایش نقشه</div>
 
-<div id="themeBody" class="collapsed">
+<div id="themeBody">
 <button class="theme-option selected" data-theme="standard">🗺️ استاندارد <span class="check">✓</span></button>
 <button class="theme-option" data-theme="satellite">🛰️ ماهواره‌ای <span class="check">✓</span></button>
 <button class="theme-option" data-theme="dark">🌌 تاریک فضایی <span class="check">✓</span></button>
@@ -312,25 +300,21 @@ header h2{font-size:14px}
 <button class="theme-option" data-theme="light">☀️ روشن <span class="check">✓</span></button>
 <button class="theme-option" data-theme="space">🌍 زمین از فضا <span class="check">✓</span></button>
 </div>
+
+<div class="menu-section-title">ابزارهای سریع</div>
+
+<div class="menu-grid">
+<button class="menu-action" onclick="getLocation();closeQuickMenu()">📍 دریافت GPS</button>
+<button class="menu-action" onclick="showTab('info')">🛰️ ماهواره‌ها</button>
+<button class="menu-action" onclick="showTab('earth')">🌐 تحلیل زمین</button>
+<button class="menu-action" onclick="showTab('map')">🌍 بازگشت نقشه</button>
 </div>
 
-</div>
-</section>
+<button class="menu-close" onclick="closeQuickMenu()">بستن منو ✕</button>
 
-<!-- BOTTOM DRAWER -->
-<section id="bottomDrawer" class="map-drawer bottom-drawer is-closed">
-<button id="bottomDrawerToggle" class="drawer-handle" type="button" aria-expanded="false">
-<span>⌖ ابزارهای سریع و موقعیت‌یابی</span>
-<span id="bottomDrawerArrow">⌃</span>
-</button>
-
-<div id="bottomDrawerBody" class="drawer-body bottom-tools">
-<button type="button" onclick="getLocation()">📍 دریافت GPS</button>
-<button type="button" onclick="showTab('info')">🛰️ ماهواره‌ها</button>
-<button type="button" onclick="showTab('earth')">🌐 تحلیل زمین</button>
-<button type="button" onclick="showTab('map')">🌍 بازگشت نقشه</button>
 </div>
-</section>
+
+<main>
 
 <!-- MAP -->
 <section id="mapTab" class="tab-content active">
@@ -344,9 +328,12 @@ header h2{font-size:14px}
 <p>اطلاعات مداری و موقعیت ماهواره‌های قابل ردیابی.</p>
 <div id="details" class="result">در انتظار دریافت اطلاعات ماهواره‌ها...</div>
 </div>
+
 <div class="panel">
 <h3>📡 فهرست ماهواره‌ها</h3>
-<div id="satelliteList" class="result">فهرست ماهواره‌ها پس از دریافت TLE نمایش داده می‌شود.</div>
+<div id="satelliteList" class="result">
+فهرست ماهواره‌ها پس از دریافت TLE نمایش داده می‌شود.
+</div>
 </div>
 </section>
 
@@ -382,52 +369,42 @@ header h2{font-size:14px}
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/satellite.js/6.0.1/satellite.min.js"></script>
 
-<!-- KEEP EXISTING APPLICATION FILES -->
+<!-- EXISTING APPLICATION FILES -->
 <script src="./app.js"></script>
 <script src="./earth-analysis.js"></script>
 
 <script>
 'use strict';
 
-/* DRAWERS */
+/* THREE DOT MENU */
 (function(){
-const top=document.getElementById('topDrawer');
-const bottom=document.getElementById('bottomDrawer');
-const topBtn=document.getElementById('topDrawerToggle');
-const bottomBtn=document.getElementById('bottomDrawerToggle');
-const topArrow=document.getElementById('topDrawerArrow');
-const bottomArrow=document.getElementById('bottomDrawerArrow');
+const menu=document.getElementById('quickMenu');
+const button=document.getElementById('menuToggle');
 
-function setDrawer(panel,button,arrow,open,isTop){
-panel.classList.toggle('is-closed',!open);
-button.setAttribute('aria-expanded',String(open));
-arrow.textContent=open?(isTop?'⌃':'⌄'):(isTop?'⌄':'⌃');
+window.closeQuickMenu=function(){
+menu.classList.remove('open');
+button.setAttribute('aria-expanded','false');
+};
+
+button.addEventListener('click',function(e){
+e.stopPropagation();
+const opened=menu.classList.toggle('open');
+button.setAttribute('aria-expanded',String(opened));
+});
+
+menu.addEventListener('click',function(e){
+e.stopPropagation();
+});
+
+document.addEventListener('click',function(e){
+if(!menu.contains(e.target)&&e.target!==button){
+closeQuickMenu();
 }
-
-function closeAll(){
-setDrawer(top,topBtn,topArrow,false,true);
-setDrawer(bottom,bottomBtn,bottomArrow,false,false);
-}
-
-topBtn.addEventListener('click',()=>{
-const open=top.classList.contains('is-closed');
-closeAll();
-if(open)setDrawer(top,topBtn,topArrow,true,true);
 });
 
-bottomBtn.addEventListener('click',()=>{
-const open=bottom.classList.contains('is-closed');
-closeAll();
-if(open)setDrawer(bottom,bottomBtn,bottomArrow,true,false);
+document.addEventListener('keydown',function(e){
+if(e.key==='Escape')closeQuickMenu();
 });
-
-document.getElementById('menuToggle').addEventListener('click',()=>{
-const open=top.classList.contains('is-closed');
-closeAll();
-if(open)setDrawer(top,topBtn,topArrow,true,true);
-});
-
-window.closeMapDrawers=closeAll;
 })();
 
 /* TABS */
@@ -446,7 +423,7 @@ document.querySelectorAll('#mainNav button').forEach(button=>{
 button.classList.toggle('active',button.dataset.tab===tab);
 });
 
-if(window.closeMapDrawers)window.closeMapDrawers();
+closeQuickMenu();
 
 if(tab==='map'){
 requestAnimationFrame(()=>{
@@ -458,28 +435,24 @@ window.showTab=showTab;
 
 /* MAP THEMES */
 (function(){
-const map=window.map;
-if(!map||!window.L){
-console.error('نقشه آماده نیست. ابتدا app.js بررسی شود.');
+if(!window.map||!window.L){
+console.error('نقشه آماده نیست. فایل app.js بررسی شود.');
 return;
 }
 
-const themeBody=document.getElementById('themeBody');
-const themeHeader=document.getElementById('themeHeader');
-const themeArrow=document.getElementById('themeArrow');
-
+const map=window.map;
 let currentLayer=null;
-let labelLayer=null;
 
-/* Dedicated label pane */
+/* LABEL PANE */
 if(!map.getPane('cityLabelsPane')){
 map.createPane('cityLabelsPane');
 }
+
 map.getPane('cityLabelsPane').style.zIndex=450;
 map.getPane('cityLabelsPane').style.pointerEvents='none';
 
-/* City and place labels */
-labelLayer=L.tileLayer(
+/* CITY AND COUNTRY LABELS */
+const labelLayer=L.tileLayer(
 'https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}',
 {
 pane:'cityLabelsPane',
@@ -521,17 +494,18 @@ space:L.tileLayer(
 function selectTheme(name){
 if(!Object.prototype.hasOwnProperty.call(themes,name))return;
 
-if(currentLayer){
+if(currentLayer&&map.hasLayer(currentLayer)){
 map.removeLayer(currentLayer);
-currentLayer=null;
 }
+
+currentLayer=null;
 
 if(themes[name]){
 currentLayer=themes[name];
 currentLayer.addTo(map);
 }
 
-/* Add labels above map imagery */
+/* Keep labels visible over imagery */
 if(!map.hasLayer(labelLayer)){
 labelLayer.addTo(map);
 }
@@ -542,7 +516,7 @@ button.classList.toggle('selected',button.dataset.theme===name);
 
 try{
 localStorage.setItem('satelliteExplorerMapTheme',name);
-}catch(error){}
+}catch(e){}
 
 map.invalidateSize(true);
 }
@@ -550,36 +524,21 @@ map.invalidateSize(true);
 document.querySelectorAll('.theme-option').forEach(button=>{
 button.addEventListener('click',()=>{
 selectTheme(button.dataset.theme);
+closeQuickMenu();
 });
-});
-
-function setThemeCollapsed(collapsed){
-themeBody.classList.toggle('collapsed',collapsed);
-themeArrow.textContent=collapsed?'⌄':'⌃';
-try{
-localStorage.setItem('satelliteExplorerThemeCollapsed',collapsed?'1':'0');
-}catch(error){}
-}
-
-themeHeader.addEventListener('click',()=>{
-setThemeCollapsed(!themeBody.classList.contains('collapsed'));
 });
 
 let savedTheme='standard';
-let savedCollapsed='1';
 
 try{
 savedTheme=localStorage.getItem('satelliteExplorerMapTheme')||'standard';
-savedCollapsed=localStorage.getItem('satelliteExplorerThemeCollapsed')||'1';
-}catch(error){}
+}catch(e){}
 
 if(!Object.prototype.hasOwnProperty.call(themes,savedTheme)){
 savedTheme='standard';
 }
 
-setThemeCollapsed(savedCollapsed==='1');
 selectTheme(savedTheme);
-
 window.selectMapTheme=selectTheme;
 })();
 
@@ -614,6 +573,7 @@ deferredInstallPrompt=null;
 /* SYSTEM CHECK */
 window.addEventListener('load',()=>{
 console.log('Satellite Explorer Pro interface loaded.');
+
 if(!window.L)console.error('Leaflet بارگذاری نشده است.');
 if(!window.satellite)console.error('satellite.js بارگذاری نشده است.');
 if(!window.map)console.error('نقشه اصلی ایجاد نشده است.');
