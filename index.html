@@ -21,520 +21,240 @@
   --border:#254663;
   --text:#eaf4ff;
   --muted:#9bb3ca;
-  --blue:#168cff;
   --cyan:#00d5ff;
   --green:#16c784;
   --shadow:0 8px 28px #0008;
 }
-
 *{box-sizing:border-box}
-
 html,body{
-  width:100%;
-  height:100%;
-  margin:0;
-  overflow:hidden;
-  background:var(--bg);
-  color:var(--text);
+  width:100%;height:100%;margin:0;overflow:hidden;
+  background:var(--bg);color:var(--text);
   font-family:Tahoma,Arial,sans-serif;
 }
-
-body{
-  display:flex;
-  flex-direction:column;
-}
-
-button{
-  font-family:inherit;
-  cursor:pointer;
-}
-
+body{display:flex;flex-direction:column}
+button{font-family:inherit;cursor:pointer}
 header{
-  flex:none;
-  padding:11px 12px;
-  text-align:center;
+  flex:none;padding:10px 12px;text-align:center;
   background:linear-gradient(120deg,#102b48,#071426);
   border-bottom:1px solid var(--border);
-  box-shadow:var(--shadow);
-  z-index:1000;
+  box-shadow:var(--shadow);z-index:1000;
 }
-
-header h2{
-  font-size:19px;
-  margin:0;
-  color:white;
-  letter-spacing:.3px;
-}
-
+header h2{font-size:19px;margin:0;color:white}
 .status{
-  display:inline-flex;
-  align-items:center;
-  gap:7px;
-  margin-top:6px;
-  color:#78f3b3;
-  font-size:11px;
+  display:inline-flex;align-items:center;gap:7px;
+  margin-top:5px;color:#78f3b3;font-size:11px;
 }
-
 .status-dot{
-  width:8px;
-  height:8px;
-  border-radius:50%;
-  background:#16c784;
-  box-shadow:0 0 10px #16c784;
+  width:8px;height:8px;border-radius:50%;
+  background:#16c784;box-shadow:0 0 10px #16c784;
 }
-
 .toolbar{
-  flex:none;
-  min-height:43px;
-  padding:5px 10px;
-  display:flex;
-  justify-content:space-between;
-  align-items:center;
-  gap:8px;
-  background:#0a192b;
-  border-bottom:1px solid var(--border);
+  flex:none;min-height:42px;padding:5px 10px;
+  display:flex;justify-content:space-between;align-items:center;
+  gap:8px;background:#0a192b;border-bottom:1px solid var(--border);
   z-index:999;
 }
-
-.toolbar-title{
-  font-size:12px;
-  color:var(--muted);
-}
-
-.online{
-  font-size:11px;
-  color:#16c784;
-}
-
+.toolbar-title{font-size:12px;color:var(--muted)}
+.online{font-size:11px;color:#16c784}
 .menu-button{
-  border:1px solid var(--border);
-  border-radius:9px;
-  background:var(--panel2);
-  color:white;
-  padding:6px 12px;
-  font-size:18px;
+  border:1px solid var(--border);border-radius:9px;
+  background:var(--panel2);color:white;padding:6px 12px;font-size:18px;
 }
-
-nav{
-  flex:none;
-  display:flex;
-  gap:7px;
-  padding:7px;
-  background:#0a192b;
-  border-bottom:1px solid var(--border);
-  overflow-x:auto;
-  scrollbar-width:none;
-  z-index:998;
-}
-
-nav::-webkit-scrollbar{display:none}
-
-nav button{
-  flex:1 0 auto;
-  min-width:75px;
-  border:1px solid var(--border);
-  border-radius:9px;
-  background:#10243b;
-  color:#c9d9e9;
-  padding:9px 8px;
-  font-size:12px;
-  white-space:nowrap;
-}
-
-nav button.active{
-  background:linear-gradient(135deg,#087de0,#0756a4);
-  border-color:#36aaff;
-  color:white;
-  box-shadow:0 0 13px #168cff44;
-}
-
-#mainNav.closed{display:none}
-
-main{
-  flex:1;
-  min-height:0;
-  position:relative;
-  overflow:hidden;
-}
-
+main{flex:1;min-height:0;position:relative;overflow:hidden}
 .tab-content{
-  display:none;
-  width:100%;
-  height:100%;
-  padding:12px;
-  overflow:auto;
+  display:none;width:100%;height:100%;padding:12px;overflow:auto;
 }
-
 .tab-content.active{display:block}
-
-#mapTab{
-  padding:0;
-  overflow:hidden;
-  position:relative;
-}
-
+#mapTab{padding:0;overflow:hidden;position:relative}
 #map{
-  width:100%;
-  height:100%;
-  min-height:250px;
-  background:#071426;
-  z-index:1;
+  width:100%;height:100%;min-height:250px;
+  background:#071426;z-index:1;
 }
-
 .panel{
   background:linear-gradient(145deg,#102943,#091a2d);
-  border:1px solid var(--border);
-  border-radius:14px;
-  padding:15px;
-  margin-bottom:12px;
-  box-shadow:var(--shadow);
+  border:1px solid var(--border);border-radius:14px;
+  padding:15px;margin-bottom:12px;box-shadow:var(--shadow);
 }
-
-.panel h3{
-  margin:0 0 12px;
-  font-size:16px;
-  color:var(--cyan);
-}
-
-.panel p{
-  font-size:13px;
-  color:var(--muted);
-  line-height:1.9;
-}
-
+.panel h3{margin:0 0 12px;font-size:16px;color:var(--cyan)}
+.panel p{font-size:13px;color:var(--muted);line-height:1.9}
 .action-button{
-  width:100%;
-  padding:12px;
-  margin:5px 0;
-  color:white;
+  width:100%;padding:12px;margin:5px 0;color:white;
   background:linear-gradient(135deg,#087de0,#0756a4);
-  border:1px solid #168cff;
-  border-radius:10px;
-  font-size:13px;
+  border:1px solid #168cff;border-radius:10px;font-size:13px;
 }
-
 .action-button.green{
   background:linear-gradient(135deg,#079b6a,#08734f);
   border-color:#16c784;
 }
-
 .action-button.orange{
   background:linear-gradient(135deg,#c77918,#92520c);
   border-color:#e5a13b;
 }
-
 .result{
-  margin-top:10px;
-  padding:12px;
-  background:#081727;
-  border:1px solid var(--border);
-  border-radius:10px;
-  color:var(--text);
-  font-size:13px;
-  line-height:2;
-  overflow-wrap:anywhere;
-}
-
-.footer-note{
-  text-align:center;
-  color:var(--muted);
-  font-size:10px;
-  padding:12px;
+  margin-top:10px;padding:12px;background:#081727;
+  border:1px solid var(--border);border-radius:10px;
+  color:var(--text);font-size:13px;line-height:2;overflow-wrap:anywhere;
 }
 
 /* LEAFLET */
-
-.leaflet-container{
-  background:#071426;
-  font-family:Tahoma,Arial,sans-serif;
-}
-
+.leaflet-container{background:#071426;font-family:Tahoma,Arial,sans-serif}
 .leaflet-control-zoom a{
-  background:#102943!important;
-  color:white!important;
+  background:#102943!important;color:white!important;
   border-color:#294967!important;
 }
-
 .leaflet-control-attribution{
-  background:#071426dd!important;
-  color:#b8cce0!important;
+  background:#071426dd!important;color:#b8cce0!important;
 }
-
-.leaflet-control-attribution a{
-  color:var(--cyan)!important;
+.leaflet-control-attribution a{color:var(--cyan)!important}
+.leaflet-popup-content-wrapper,.leaflet-popup-tip{
+  background:#102943;color:white;
 }
-
-.leaflet-popup-content-wrapper,
-.leaflet-popup-tip{
-  background:#102943;
-  color:white;
-}
-
-.leaflet-popup-content{
-  font-family:Tahoma,Arial,sans-serif;
-  line-height:1.9;
-}
-
+.leaflet-popup-content{font-family:Tahoma,Arial,sans-serif;line-height:1.9}
 .leaflet-popup-content button{
-  background:#087de0;
-  color:white;
-  border:0;
-  border-radius:7px;
-  padding:8px;
+  background:#087de0;color:white;border:0;border-radius:7px;padding:8px;
 }
 
 /* AIRCRAFT CONTROL */
-
 .aircraft-control{
-  min-width:165px!important;
-  max-width:195px;
-  padding:10px!important;
-  color:white!important;
-  background:linear-gradient(145deg,#102d49,#07182a)!important;
-  border:1px solid #00c8ee!important;
-  border-radius:13px!important;
+  min-width:165px!important;max-width:195px;padding:10px!important;
+  color:white!important;background:linear-gradient(145deg,#102d49,#07182a)!important;
+  border:1px solid #00c8ee!important;border-radius:13px!important;
   box-shadow:0 5px 20px #0009!important;
-  font-family:Tahoma,Arial,sans-serif!important;
-  font-size:12px!important;
+  font-family:Tahoma,Arial,sans-serif!important;font-size:12px!important;
   line-height:1.9!important;
 }
-
 .aircraft-control b{
-  display:block;
-  color:#00dcff;
-  font-size:14px;
-  padding-bottom:5px;
-  border-bottom:1px solid #31516c;
-  margin-bottom:7px;
+  display:block;color:#00dcff;font-size:14px;padding-bottom:5px;
+  border-bottom:1px solid #31516c;margin-bottom:7px;
 }
-
-#aircraftStatus{
-  color:#a8c5dc;
-  font-size:11px;
-  overflow-wrap:anywhere;
+#aircraftStatus{color:#a8c5dc;font-size:11px;overflow-wrap:anywhere}
+#aircraftCount{margin-top:5px;color:#77f2b2;font-size:11px}
+#aircraftRefresh,#aircraftClear{
+  width:100%;padding:8px!important;margin-top:7px!important;
+  border:1px solid #168cff!important;border-radius:8px!important;
+  color:white!important;background:#075da9!important;font-size:11px!important;
 }
+#aircraftClear{background:#493047!important;border-color:#a44c75!important}
+.satellite-marker,.aircraft-marker{background:transparent!important;border:0!important}
 
-#aircraftCount{
-  margin-top:5px;
-  color:#77f2b2;
-  font-size:11px;
+/* TOP AND BOTTOM DRAWERS */
+.map-drawer{
+  position:absolute;z-index:850;left:10px;right:10px;
+  max-width:620px;margin-inline:auto;overflow:hidden;
+  background:rgba(6,20,36,.97);border:1px solid #31516e;
+  border-radius:14px;box-shadow:0 8px 28px #000a;
+  backdrop-filter:blur(10px);direction:rtl;
 }
-
-#aircraftRefresh,
-#aircraftClear{
-  width:100%;
-  padding:8px!important;
-  margin-top:7px!important;
-  border:1px solid #168cff!important;
-  border-radius:8px!important;
-  color:white!important;
-  background:#075da9!important;
-  font-size:11px!important;
+.top-drawer{top:9px}
+.bottom-drawer{bottom:9px}
+.drawer-handle{
+  width:100%;min-height:43px;display:flex;
+  align-items:center;justify-content:space-between;gap:12px;
+  padding:9px 13px;border:0;color:#eaf4ff;
+  background:linear-gradient(120deg,#123756,#0b2239);
+  font-size:12px;font-weight:bold;text-align:right;
 }
+.drawer-handle span:last-child{font-size:18px;color:#00dfff}
+.drawer-body{display:block;max-height:48vh;overflow:auto;padding:7px}
+.map-drawer.is-closed .drawer-body{display:none}
 
-#aircraftClear{
-  background:#493047!important;
-  border-color:#a44c75!important;
+/* NAVIGATION INSIDE TOP DRAWER */
+#mainNav{
+  display:flex;gap:6px;padding:5px;
+  background:transparent;border:0;overflow-x:auto;
 }
+#mainNav button{
+  flex:1 1 auto;min-width:0;padding:9px 5px;
+  border:1px solid var(--border);border-radius:9px;
+  background:#10243b;color:#c9d9e9;font-size:11px;white-space:nowrap;
+}
+#mainNav button.active{
+  background:linear-gradient(135deg,#087de0,#0756a4);
+  border-color:#36aaff;color:white;
+}
+#mainNav.closed{display:none}
 
-/* SINGLE MAP THEME PANEL */
-
+/* MAP THEME PANEL */
 #mapThemePanel{
-  position:absolute;
-  left:12px;
-  bottom:48px;
-  z-index:700;
-  width:178px;
-  max-width:calc(100% - 24px);
-  background:rgba(7,24,42,.97);
-  border:1px solid #31516e;
-  border-radius:13px;
-  box-shadow:var(--shadow);
-  overflow:hidden;
-  direction:rtl;
-  isolation:isolate;
-  transition:width .2s ease;
+  position:relative;inset:auto;width:100%;max-width:none;
+  margin:5px 0 0;background:rgba(7,24,42,.97);
+  border:1px solid #31516e;border-radius:10px;
+  overflow:hidden;direction:rtl;
 }
-
 #themeHeader{
-  width:100%;
-  min-height:43px;
-  padding:10px;
-  display:flex;
-  justify-content:space-between;
-  align-items:center;
-  gap:8px;
-  color:#00dfff;
-  background:#102b46;
-  border:0;
-  font-size:12px;
-  font-weight:bold;
-  text-align:right;
+  width:100%;min-height:40px;padding:9px;
+  display:flex;justify-content:space-between;align-items:center;
+  color:#00dfff;background:#102b46;border:0;
+  font-size:12px;font-weight:bold;text-align:right;
 }
-
-#themeArrow{
-  font-size:17px;
-  color:white;
-}
-
+#themeArrow{font-size:17px;color:white}
 #themeBody{
-  display:grid;
-  grid-template-columns:1fr 1fr;
-  gap:6px;
-  padding:8px;
-  max-height:260px;
-  overflow-y:auto;
-  transition:opacity .2s ease;
+  display:grid;grid-template-columns:repeat(3,1fr);
+  gap:6px;padding:8px;max-height:190px;overflow-y:auto;
 }
-
-#themeBody.collapsed{
-  display:none;
-}
-
+#themeBody.collapsed{display:none}
 .theme-option{
-  position:relative;
-  min-height:48px;
-  padding:9px 3px;
-  border-radius:8px;
-  background:#142e49;
-  color:#c7d9ea;
-  border:1px solid #294967;
-  font-size:10px;
-  text-align:center;
+  min-height:45px;padding:8px 3px;border-radius:8px;
+  background:#142e49;color:#c7d9ea;
+  border:1px solid #294967;font-size:10px;text-align:center;
 }
-
 .theme-option.selected{
-  color:white;
-  border-color:#00d5ff;
-  background:#075b91;
+  color:white;border-color:#00d5ff;background:#075b91;
   box-shadow:0 0 9px #00d5ff44;
 }
+.theme-option .check{display:none;color:#75f5b5;margin-right:3px}
+.theme-option.selected .check{display:inline}
 
-.theme-option .check{
-  display:none;
-  color:#75f5b5;
-  margin-right:3px;
+/* BOTTOM QUICK TOOLS */
+.bottom-tools{
+  display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px;
 }
-
-.theme-option.selected .check{
-  display:inline;
+.bottom-tools button{
+  min-width:0;padding:11px 5px;color:#eaf4ff;
+  background:#123653;border:1px solid #2d5877;
+  border-radius:9px;font:11px Tahoma,Arial,sans-serif;
 }
+.bottom-tools button:active{background:#075b91}
 
-.hidden{
-  display:none!important;
-}
-
-/* MAP MARKERS */
-
-.satellite-marker,
-.aircraft-marker{
-  background:transparent!important;
-  border:0!important;
-}
-
-/* TABLET AND MOBILE */
+.hidden{display:none!important}
 
 @media(max-width:600px){
-
   header{padding:9px}
-
   header h2{font-size:17px}
-
   .toolbar-title{font-size:10px}
-
-  nav{
-    gap:5px;
-    padding:6px;
-  }
-
-  nav button{
-    min-width:67px;
-    padding:9px 5px;
-    font-size:10px;
-  }
-
   .tab-content{padding:9px}
-
   #mapTab{padding:0}
-
   .panel{padding:12px}
-
+  .map-drawer{left:7px;right:7px}
+  .top-drawer{top:7px}
+  .bottom-drawer{bottom:7px}
+  .drawer-handle{min-height:40px;padding:8px 11px;font-size:11px}
+  .drawer-body{max-height:42vh;padding:5px}
+  #mainNav{gap:4px;padding:3px}
+  #mainNav button{font-size:9px;padding:9px 3px}
+  #themeBody{max-height:150px;gap:5px;padding:7px}
+  .theme-option{min-height:43px;padding:8px 2px;font-size:9px}
+  .bottom-tools{gap:5px}
+  .bottom-tools button{font-size:10px;padding:10px 3px}
   .aircraft-control{
-    min-width:125px!important;
-    max-width:145px;
-    padding:7px!important;
-    font-size:10px!important;
+    min-width:125px!important;max-width:145px;
+    padding:7px!important;font-size:10px!important;
   }
-
-  .aircraft-control b{
-    font-size:12px;
-  }
-
-  #aircraftStatus,
-  #aircraftCount{
-    font-size:9px;
-  }
-
-  #mapThemePanel{
-    left:8px;
-    bottom:43px;
-    width:158px;
-    max-width:calc(100% - 16px);
-  }
-
-  #themeHeader{
-    min-height:38px;
-    padding:8px;
-    font-size:11px;
-  }
-
-  #themeBody{
-    gap:5px;
-    padding:7px;
-  }
-
-  .theme-option{
-    min-height:43px;
-    padding:8px 2px;
-    font-size:9px;
-  }
-
-  #mapThemePanel.mobile-collapsed{
-    width:158px;
-  }
+  .aircraft-control b{font-size:12px}
+  #aircraftStatus,#aircraftCount{font-size:9px}
 }
-
-@media(max-width:380px){
-
-  .aircraft-control{
-    min-width:112px!important;
-    max-width:125px;
-  }
-
-  #mapThemePanel{
-    width:145px;
-  }
+@media(max-width:360px){
+  #mainNav button{font-size:8px}
+  .bottom-tools button{font-size:9px}
+  .aircraft-control{min-width:112px!important;max-width:125px}
 }
-
 @media(max-height:500px) and (orientation:landscape){
-
   header{padding:5px}
-
   header h2{font-size:14px}
-
   .status{margin-top:2px}
-
   .toolbar{min-height:32px}
-
-  nav{padding:3px}
-
-  nav button{padding:5px}
-
-  #mapThemePanel{bottom:8px}
-
-  #themeBody{
-    max-height:150px;
-  }
+  .drawer-body{max-height:35vh}
+  #themeBody{max-height:110px}
 }
 </style>
 </head>
@@ -555,139 +275,119 @@ main{
   <span class="online">● آنلاین</span>
 </div>
 
-<nav id="mainNav">
-  <button class="active" data-tab="map" onclick="showTab('map')">🌍 نقشه</button>
-  <button data-tab="info" onclick="showTab('info')">🛰️ ماهواره‌ها</button>
-  <button data-tab="gps" onclick="showTab('gps')">📍 موقعیت GPS</button>
-  <button data-tab="earth" onclick="showTab('earth')">🌐 تحلیل زمین</button>
-</nav>
-
 <main>
 
-  <!-- MAP -->
+  <!-- TOP DRAWER -->
+  <section id="topDrawer" class="map-drawer top-drawer">
+    <button id="topDrawerToggle" class="drawer-handle" type="button" aria-expanded="false">
+      <span>☰ منو و لایه‌های نقشه</span>
+      <span id="topDrawerArrow">⌄</span>
+    </button>
 
-  <section id="mapTab" class="tab-content active">
+    <div id="topDrawerBody" class="drawer-body">
+      <nav id="mainNav">
+        <button class="active" data-tab="map" onclick="showTab('map')">🌍 نقشه</button>
+        <button data-tab="info" onclick="showTab('info')">🛰️ ماهواره‌ها</button>
+        <button data-tab="gps" onclick="showTab('gps')">📍 موقعیت GPS</button>
+        <button data-tab="earth" onclick="showTab('earth')">🌐 تحلیل زمین</button>
+      </nav>
 
-    <div id="map"></div>
-
-    <!-- ONLY ONE MAP THEME PANEL -->
-
-    <div id="mapThemePanel">
-
-      <button id="themeHeader" type="button">
-        <span>✦ حالت نمایش نقشه</span>
-        <span id="themeArrow">⌄</span>
-      </button>
-
-      <div id="themeBody" class="collapsed">
-
-        <button class="theme-option selected" data-theme="standard">
-          🗺️ استاندارد <span class="check">✓</span>
+      <div id="mapThemePanel">
+        <button id="themeHeader" type="button">
+          <span>✦ حالت نمایش نقشه</span>
+          <span id="themeArrow">⌄</span>
         </button>
 
-        <button class="theme-option" data-theme="satellite">
-          🛰️ ماهواره‌ای <span class="check">✓</span>
-        </button>
-
-        <button class="theme-option" data-theme="dark">
-          🌌 تاریک فضایی <span class="check">✓</span>
-        </button>
-
-        <button class="theme-option" data-theme="topo">
-          ⛰️ توپوگرافی <span class="check">✓</span>
-        </button>
-
-        <button class="theme-option" data-theme="light">
-          ☀️ روشن <span class="check">✓</span>
-        </button>
-
-        <button class="theme-option" data-theme="space">
-          🌍 زمین از فضا <span class="check">✓</span>
-        </button>
-
+        <div id="themeBody" class="collapsed">
+          <button class="theme-option selected" data-theme="standard">
+            🗺️ استاندارد <span class="check">✓</span>
+          </button>
+          <button class="theme-option" data-theme="satellite">
+            🛰️ ماهواره‌ای <span class="check">✓</span>
+          </button>
+          <button class="theme-option" data-theme="dark">
+            🌌 تاریک فضایی <span class="check">✓</span>
+          </button>
+          <button class="theme-option" data-theme="topo">
+            ⛰️ توپوگرافی <span class="check">✓</span>
+          </button>
+          <button class="theme-option" data-theme="light">
+            ☀️ روشن <span class="check">✓</span>
+          </button>
+          <button class="theme-option" data-theme="space">
+            🌍 زمین از فضا <span class="check">✓</span>
+          </button>
+        </div>
       </div>
     </div>
+  </section>
 
+  <!-- BOTTOM DRAWER -->
+  <section id="bottomDrawer" class="map-drawer bottom-drawer">
+    <button id="bottomDrawerToggle" class="drawer-handle" type="button" aria-expanded="false">
+      <span>⌖ ابزارهای سریع و موقعیت‌یابی</span>
+      <span id="bottomDrawerArrow">⌃</span>
+    </button>
+
+    <div id="bottomDrawerBody" class="drawer-body bottom-tools">
+      <button type="button" onclick="getLocation()">📍 دریافت GPS</button>
+      <button type="button" onclick="showTab('info')">🛰️ ماهواره‌ها</button>
+      <button type="button" onclick="showTab('earth')">🌐 تحلیل زمین</button>
+    </div>
+  </section>
+
+  <!-- MAP -->
+  <section id="mapTab" class="tab-content active">
+    <div id="map"></div>
   </section>
 
   <!-- SATELLITES -->
-
   <section id="infoTab" class="tab-content">
-
     <div class="panel">
       <h3>🛰️ اطلاعات ماهواره‌ها</h3>
       <p>اطلاعات مداری و موقعیت ماهواره‌های قابل ردیابی.</p>
-
-      <div id="details" class="result">
-        در انتظار دریافت اطلاعات ماهواره‌ها...
-      </div>
+      <div id="details" class="result">در انتظار دریافت اطلاعات ماهواره‌ها...</div>
     </div>
 
     <div class="panel">
       <h3>📡 فهرست ماهواره‌ها</h3>
-
       <div id="satelliteList" class="result">
         فهرست ماهواره‌ها پس از دریافت TLE نمایش داده می‌شود.
       </div>
     </div>
-
   </section>
 
   <!-- GPS -->
-
   <section id="gpsTab" class="tab-content">
-
     <div class="panel">
       <h3>📍 موقعیت GPS گوشی</h3>
-
       <p>برای دریافت موقعیت دقیق، دسترسی مکان‌یابی گوشی را فعال کنید.</p>
-
-      <button class="action-button green" onclick="getLocation()">
-        دریافت موقعیت من
-      </button>
-
-      <div id="gpsStatus" class="result">
-        GPS هنوز فعال نشده است.
-      </div>
-
-      <div id="location" class="result">
-        موقعیت GPS هنوز دریافت نشده است.
-      </div>
+      <button class="action-button green" onclick="getLocation()">دریافت موقعیت من</button>
+      <div id="gpsStatus" class="result">GPS هنوز فعال نشده است.</div>
+      <div id="location" class="result">موقعیت GPS هنوز دریافت نشده است.</div>
     </div>
-
   </section>
 
   <!-- EARTH ANALYSIS -->
-
   <section id="earthTab" class="tab-content">
-
     <div class="panel">
       <h3>🌐 تحلیل اطلاعات زمین</h3>
-
       <p>ابزارهای تحلیل اطلاعات حرارتی و معدنی.</p>
 
       <button class="action-button" onclick="loadThermalData()">
         🌡️ بررسی اطلاعات حرارتی
       </button>
-
-      <div id="thermalResult" class="result">
-        اطلاعات حرارتی هنوز بارگذاری نشده است.
-      </div>
+      <div id="thermalResult" class="result">اطلاعات حرارتی هنوز بارگذاری نشده است.</div>
 
       <button class="action-button orange" onclick="loadMineralData()">
         🪨 بررسی اطلاعات معدنی
       </button>
-
-      <div id="mineralResult" class="result">
-        اطلاعات معدنی هنوز بارگذاری نشده است.
-      </div>
+      <div id="mineralResult" class="result">اطلاعات معدنی هنوز بارگذاری نشده است.</div>
 
       <div id="selectedCoordinates" class="result">
         برای انتخاب مختصات، روی نقشه کلیک کنید.
       </div>
-
     </div>
-
   </section>
 
 </main>
@@ -695,18 +395,14 @@ main{
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/satellite.js/6.0.1/satellite.min.js"></script>
 
-<!-- CORE APPLICATION -->
-
+<!-- CORE APPLICATION: KEEP THESE FILES -->
 <script src="./app.js"></script>
 <script src="./earth-analysis.js"></script>
 
 <script>
 'use strict';
 
-/* =====================================================
-   MENU
-===================================================== */
-
+/* MENU */
 const menuToggle=document.getElementById('menuToggle');
 const mainNav=document.getElementById('mainNav');
 
@@ -714,179 +410,130 @@ menuToggle.addEventListener('click',()=>{
   mainNav.classList.toggle('closed');
 });
 
-/* =====================================================
-   TABS
-===================================================== */
+/* DRAWERS */
+(function(){
+  const top=document.getElementById('topDrawer');
+  const bottom=document.getElementById('bottomDrawer');
+  const topBtn=document.getElementById('topDrawerToggle');
+  const bottomBtn=document.getElementById('bottomDrawerToggle');
+  const topArrow=document.getElementById('topDrawerArrow');
+  const bottomArrow=document.getElementById('bottomDrawerArrow');
 
+  function setDrawer(panel,button,arrow,open,isTop){
+    panel.classList.toggle('is-closed',!open);
+    button.setAttribute('aria-expanded',String(open));
+    arrow.textContent=open?(isTop?'⌃':'⌄'):(isTop?'⌄':'⌃');
+  }
+
+  top.classList.add('is-closed');
+  bottom.classList.add('is-closed');
+
+  topBtn.addEventListener('click',()=>{
+    const open=top.classList.contains('is-closed');
+    setDrawer(top,topBtn,topArrow,open,true);
+    if(open)setDrawer(bottom,bottomBtn,bottomArrow,false,false);
+  });
+
+  bottomBtn.addEventListener('click',()=>{
+    const open=bottom.classList.contains('is-closed');
+    setDrawer(bottom,bottomBtn,bottomArrow,open,false);
+    if(open)setDrawer(top,topBtn,topArrow,false,true);
+  });
+
+  window.closeMapDrawers=function(){
+    setDrawer(top,topBtn,topArrow,false,true);
+    setDrawer(bottom,bottomBtn,bottomArrow,false,false);
+  };
+})();
+
+/* TABS */
 function showTab(tab){
-
   const tabs=['map','info','gps','earth'];
 
   tabs.forEach(name=>{
-
     const section=document.getElementById(name+'Tab');
-
     if(section){
       section.classList.toggle('active',name===tab);
       section.hidden=name!==tab;
     }
-
   });
 
   document.querySelectorAll('#mainNav button').forEach(button=>{
-
-    button.classList.toggle(
-      'active',
-      button.dataset.tab===tab
-    );
-
+    button.classList.toggle('active',button.dataset.tab===tab);
   });
 
   mainNav.classList.remove('closed');
 
+  if(window.closeMapDrawers)window.closeMapDrawers();
+
   if(tab==='map'){
-
     requestAnimationFrame(()=>{
-
-      if(window.map){
-        window.map.invalidateSize(true);
-      }
-
+      if(window.map)window.map.invalidateSize(true);
     });
-
   }
-
 }
-
 window.showTab=showTab;
 
-/* =====================================================
-   REMOVE DUPLICATE MAP THEME PANELS
-===================================================== */
-
-function ensureSingleThemePanel(){
-
-  const panels=document.querySelectorAll('#mapThemePanel');
-
-  panels.forEach((panel,index)=>{
-
-    if(index>0){
-      panel.remove();
-    }
-
-  });
-
-  const panel=document.querySelector('#mapThemePanel');
-  const mapTab=document.getElementById('mapTab');
-
-  if(panel && mapTab && panel.parentElement!==mapTab){
-    mapTab.appendChild(panel);
-  }
-
-}
-
-ensureSingleThemePanel();
-
-/* =====================================================
-   MAP THEMES
-===================================================== */
-
+/* MAP THEMES */
 (function(){
-
   const map=window.map;
 
-  if(!map || !window.L){
+  if(!map||!window.L){
     console.error('نقشه برای فعال‌سازی پوسته‌ها آماده نیست.');
     return;
   }
 
-  const themePanel=document.getElementById('mapThemePanel');
   const themeBody=document.getElementById('themeBody');
   const themeHeader=document.getElementById('themeHeader');
   const themeArrow=document.getElementById('themeArrow');
-
-  if(!themePanel || !themeBody || !themeHeader){
-    console.error('پنل تنظیمات نقشه پیدا نشد.');
-    return;
-  }
+  const themePanel=document.getElementById('mapThemePanel');
 
   let currentLayer=null;
 
   const themes={
-
     standard:null,
 
     satellite:L.tileLayer(
       'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-      {
-        maxZoom:19,
-        attribution:'Tiles © Esri'
-      }
+      {maxZoom:19,attribution:'Tiles © Esri'}
     ),
 
     dark:L.tileLayer(
       'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
-      {
-        subdomains:'abcd',
-        maxZoom:20,
-        attribution:'© OpenStreetMap © CARTO'
-      }
+      {subdomains:'abcd',maxZoom:20,attribution:'© OpenStreetMap © CARTO'}
     ),
 
     topo:L.tileLayer(
       'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',
-      {
-        maxZoom:17,
-        attribution:'© OpenTopoMap'
-      }
+      {maxZoom:17,attribution:'© OpenTopoMap'}
     ),
 
     light:L.tileLayer(
       'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
-      {
-        subdomains:'abcd',
-        maxZoom:20,
-        attribution:'© OpenStreetMap © CARTO'
-      }
+      {subdomains:'abcd',maxZoom:20,attribution:'© OpenStreetMap © CARTO'}
     ),
 
     space:L.tileLayer(
       'https://server.arcgisonline.com/ArcGIS/rest/services/World_Shaded_Relief/MapServer/tile/{z}/{y}/{x}',
-      {
-        maxZoom:13,
-        attribution:'Tiles © Esri'
-      }
+      {maxZoom:13,attribution:'Tiles © Esri'}
     )
-
   };
 
   function selectTheme(name){
-
-    if(!Object.prototype.hasOwnProperty.call(themes,name)){
-      return;
-    }
+    if(!Object.prototype.hasOwnProperty.call(themes,name))return;
 
     if(currentLayer){
-
       map.removeLayer(currentLayer);
       currentLayer=null;
-
     }
 
     if(themes[name]){
-
       currentLayer=themes[name];
       currentLayer.addTo(map);
-
     }
 
     document.querySelectorAll('.theme-option').forEach(button=>{
-
-      button.classList.toggle(
-        'selected',
-        button.dataset.theme===name
-      );
-
+      button.classList.toggle('selected',button.dataset.theme===name);
     });
 
     try{
@@ -894,31 +541,17 @@ ensureSingleThemePanel();
     }catch(error){}
 
     map.invalidateSize(true);
-
   }
 
   document.querySelectorAll('.theme-option').forEach(button=>{
-
     button.addEventListener('click',()=>{
-
       selectTheme(button.dataset.theme);
-
     });
-
   });
 
-  /* PANEL COLLAPSE */
-
-  function setThemePanelCollapsed(collapsed){
-
+  function setThemeCollapsed(collapsed){
     themeBody.classList.toggle('collapsed',collapsed);
-
     themeArrow.textContent=collapsed?'⌄':'⌃';
-
-    themePanel.classList.toggle(
-      'mobile-collapsed',
-      collapsed
-    );
 
     try{
       localStorage.setItem(
@@ -926,139 +559,72 @@ ensureSingleThemePanel();
         collapsed?'1':'0'
       );
     }catch(error){}
-
   }
 
   themeHeader.addEventListener('click',()=>{
-
-    setThemePanelCollapsed(
-      !themeBody.classList.contains('collapsed')
-    );
-
+    setThemeCollapsed(!themeBody.classList.contains('collapsed'));
   });
-
-  /* RESTORE THEME */
 
   let savedTheme='standard';
   let savedCollapsed=null;
 
   try{
-
-    savedTheme=
-      localStorage.getItem('satelliteExplorerMapTheme')||'standard';
-
-    savedCollapsed=
-      localStorage.getItem('satelliteExplorerThemeCollapsed');
-
+    savedTheme=localStorage.getItem('satelliteExplorerMapTheme')||'standard';
+    savedCollapsed=localStorage.getItem('satelliteExplorerThemeCollapsed');
   }catch(error){}
 
   if(!Object.prototype.hasOwnProperty.call(themes,savedTheme)){
     savedTheme='standard';
   }
 
-  /* MOBILE DEFAULT: COLLAPSED */
-
   if(savedCollapsed===null){
-
-    savedCollapsed=window.innerWidth<=600?'1':'0';
-
+    savedCollapsed='1';
   }
 
-  setThemePanelCollapsed(savedCollapsed==='1');
-
+  setThemeCollapsed(savedCollapsed==='1');
   selectTheme(savedTheme);
-
   window.selectMapTheme=selectTheme;
-
 })();
 
-/* =====================================================
-   MAP RESIZE
-===================================================== */
-
+/* MAP RESIZE */
 window.addEventListener('resize',()=>{
-
-  if(
-    window.map &&
-    document.getElementById('mapTab').classList.contains('active')
-  ){
-
+  const mapTab=document.getElementById('mapTab');
+  if(window.map&&mapTab&&mapTab.classList.contains('active')){
     window.map.invalidateSize(true);
-
   }
-
 });
 
-/* =====================================================
-   PWA SERVICE WORKER
-===================================================== */
-
+/* SERVICE WORKER */
 if('serviceWorker' in navigator){
-
   window.addEventListener('load',()=>{
-
     navigator.serviceWorker.register('./service-worker.js')
-
-      .then(reg=>{
-        console.log('Service Worker فعال شد:',reg.scope);
-      })
-
-      .catch(err=>{
-        console.warn('Service Worker:',err);
-      });
-
+      .then(reg=>console.log('Service Worker فعال شد:',reg.scope))
+      .catch(err=>console.warn('Service Worker:',err));
   });
-
 }
 
-/* =====================================================
-   INSTALL
-===================================================== */
-
+/* PWA INSTALL */
 let deferredInstallPrompt=null;
 
 window.addEventListener('beforeinstallprompt',event=>{
-
   event.preventDefault();
   deferredInstallPrompt=event;
-
 });
 
 window.addEventListener('appinstalled',()=>{
-
   deferredInstallPrompt=null;
-
 });
 
-/* =====================================================
-   SYSTEM CHECK
-===================================================== */
-
+/* SYSTEM CHECK */
 window.addEventListener('load',()=>{
+  console.log('Satellite Explorer Pro interface loaded.');
 
-  ensureSingleThemePanel();
+  if(!window.L)console.error('Leaflet بارگذاری نشده است.');
+  if(!window.satellite)console.error('satellite.js بارگذاری نشده است.');
+  if(!window.map)console.error('نقشه اصلی ایجاد نشده است.');
 
-  console.log('🛰️ Satellite Explorer Pro interface loaded.');
-
-  if(!window.L){
-    console.error('Leaflet بارگذاری نشده است.');
-  }
-
-  if(!window.satellite){
-    console.error('satellite.js بارگذاری نشده است.');
-  }
-
-  if(!window.map){
-    console.error('نقشه اصلی ایجاد نشده است.');
-  }
-
-  console.log(
-    'Theme panels:',
-    document.querySelectorAll('#mapThemePanel').length
-  );
-
+  console.log('Theme panels:',document.querySelectorAll('#mapThemePanel').length);
 });
-
 </script>
 
 </body>
