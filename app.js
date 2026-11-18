@@ -15,7 +15,7 @@ const CONFIG = {
   tleGroups: ['stations','weather','noaa','goes','resource','sarsat','cubesat','education','amateur'],
   tleRefreshMs: 30 * 60 * 1000,
   positionRefreshMs: 5000,
-  aircraftApi: window.AIRCRAFT_API || 'https://satellite-explorer-aircraft.onrender.com/api/aircraft',
+  aircraftApi: window.AIRCRAFT_API || 'https://satellite-explorer-pro.onrender.com/api/aircraft',
   aircraftRefreshMs: 20000,
   aircraftTimeoutMs: 60000,
   aircraftMinRadiusNm: 30,
