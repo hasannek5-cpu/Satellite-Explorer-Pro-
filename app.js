@@ -1,4 +1,3 @@
-
 /* =========================================================
    SATELLITE EXPLORER PRO — INTEGRATED APP.JS (FIXED)
    Map • GPS • Satellites • TLE • Orbit • Pass prediction
@@ -16,9 +15,9 @@ const CONFIG = {
   tleGroups: ['stations','weather','noaa','goes','resource','sarsat','cubesat','education','amateur'],
   tleRefreshMs: 30 * 60 * 1000,
   positionRefreshMs: 5000,
-  aircraftApi: window.AIRCRAFT_API || 'https://satellite-explorer-pro.onrender.com/api/aircraft',
+  aircraftApi: window.AIRCRAFT_API || 'https://satellite-explorer-aircraft.onrender.com/api/aircraft',
   aircraftRefreshMs: 20000,
-  aircraftTimeoutMs: 15000,
+  aircraftTimeoutMs: 60000,
   aircraftMinRadiusNm: 30,
   aircraftMaxRadiusNm: 250,
   aircraftMinPointDistanceKm: 0.02,
@@ -1392,9 +1391,20 @@ async function fetchAircraft(){
 
     renderAircraft(planes);
 
-    setAircraftStatus(
-      `به‌روزرسانی موفق | ${new Date().toLocaleTimeString('fa-IR')}`
-    );
+    if(data.refreshing && planes.length===0){
+      const progress=data.progress;
+      const detail=progress&&progress.total?
+        ` (${progress.completed}/${progress.total})`:'';
+      setAircraftStatus('سرور در حال جمع‌آوری اطلاعات پروازهاست'+detail);
+    }else if(data.refreshing){
+      setAircraftStatus(
+        `نمایش ${planes.length} هواپیما | به‌روزرسانی در پس‌زمینه`
+      );
+    }else{
+      setAircraftStatus(
+        `به‌روزرسانی موفق | ${new Date().toLocaleTimeString('fa-IR')}`
+      );
+    }
 
   }catch(error){
     console.warn('Aircraft API error:',error);
